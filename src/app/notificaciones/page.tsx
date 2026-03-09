@@ -18,6 +18,7 @@ export default function NotificacionesPage() {
     const [unread, setUnread] = useState(0);
     const [loading, setLoading] = useState(true);
     const [processingId, setProcessingId] = useState<number | null>(null);
+    const [hasRealtimeActivity, setHasRealtimeActivity] = useState(false);
 
     const fetchNotifications = async (silent = false) => {
         if (!silent) setLoading(true);
@@ -39,23 +40,33 @@ export default function NotificacionesPage() {
     useEffect(() => {
         const runRefresh = () => {
             if (document.visibilityState !== 'visible') return;
+            if (hasRealtimeActivity) return;
             fetchNotifications(true);
         };
 
         fetchNotifications();
         const id = window.setInterval(runRefresh, NOTIFICATIONS_PAGE_POLL_MS);
         const onVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
+            if (document.visibilityState === 'visible' && !hasRealtimeActivity) {
                 fetchNotifications(true);
             }
         };
 
+        const onRealtimeUpdate = (event: Event) => {
+            const detail = (event as CustomEvent<{ type?: string }>).detail;
+            if (detail?.type !== 'notification') return;
+            setHasRealtimeActivity(true);
+            fetchNotifications(true);
+        };
+
         document.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('realtime:update', onRealtimeUpdate as EventListener);
         return () => {
             window.clearInterval(id);
             document.removeEventListener('visibilitychange', onVisibilityChange);
+            window.removeEventListener('realtime:update', onRealtimeUpdate as EventListener);
         };
-    }, []);
+    }, [hasRealtimeActivity]);
 
     const markOneRead = async (id: number) => {
         setProcessingId(id);

@@ -24,6 +24,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     const pathname = usePathname();
 
     const [unread, setUnread] = useState(0);
+    const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
     const [soundEnabled, setSoundEnabledState] = useState(() => {
         if (typeof window === 'undefined') return true;
         try {
@@ -141,6 +142,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     useEffect(() => {
         const runRefresh = () => {
             if (document.visibilityState !== 'visible') return;
+            if (isRealtimeConnected) return;
             refreshNotifications();
         };
 
@@ -148,7 +150,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         const id = window.setInterval(runRefresh, NOTIFICATION_POLL_INTERVAL_MS);
 
         const onVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
+            if (document.visibilityState === 'visible' && !isRealtimeConnected) {
                 refreshNotifications();
             }
         };
@@ -159,7 +161,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             window.clearInterval(id);
             document.removeEventListener('visibilitychange', onVisibilityChange);
         };
-    }, [refreshNotifications]);
+    }, [isRealtimeConnected, refreshNotifications]);
 
     useEffect(() => {
         const onChanged = () => {
@@ -178,6 +180,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         const dispatchRealtimeUpdate = (type: string, payload: unknown) => {
             window.dispatchEvent(new CustomEvent('realtime:update', { detail: { type, payload } }));
         };
+
+        es.addEventListener('connected', () => {
+            setIsRealtimeConnected(true);
+        });
 
         es.addEventListener('notification', (ev) => {
             try {
@@ -218,10 +224,11 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         });
 
         es.onerror = () => {
-            // fallback is polling
+            setIsRealtimeConnected(false);
         };
 
         return () => {
+            setIsRealtimeConnected(false);
             es.close();
         };
     }, [pathname, playNotificationSound, refreshNotifications, showToast, user]);

@@ -4,10 +4,12 @@ import { cookies } from 'next/headers';
 import { createNotification, notifyRoles } from '@/lib/notifications';
 import { getProjectCatalogEntries } from '@/lib/project-catalog';
 import { publishAssignmentEvent } from '@/lib/realtime';
+import { getCachedValue, invalidateCacheByPrefix } from '@/lib/runtime-cache';
 
 export const dynamic = 'force-dynamic';
 const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
 const ACTIVE_ASSIGNMENT_STATES = ['Pendiente', 'En Proceso'];
+const ASSIGNMENTS_CACHE_TTL_MS = process.env.NODE_ENV === 'production' ? 15000 : 3000;
 
 async function hasAsignacionesColumn(db, columnName) {
     try {
@@ -218,32 +220,41 @@ export async function GET() {
         const isLeader = roles.includes('Lider de Grupo') && !hasProductionRole;
         const userGroupId = user?.grupo_id || null;
 
-        let query = `
-            SELECT a.*, u.nombre as usuario_nombre, p.titulo as proyecto_titulo, p.imagen_url as proyecto_imagen
-            FROM asignaciones a
-            JOIN usuarios u ON a.usuario_id = u.id
-            LEFT JOIN proyectos p ON a.proyecto_id = p.id
-        `;
-        const params = [];
+        const cacheKey = [
+            'assignments',
+            session.usuario_id,
+            isAdmin ? 'admin' : isLeader ? 'leader' : 'staff',
+            userGroupId ?? 'none',
+        ].join(':');
 
-        if (isAdmin) {
-            // Admin ve todo
-        } else if (isLeader) {
-            if (!userGroupId) {
+        const asignaciones = await getCachedValue(cacheKey, ASSIGNMENTS_CACHE_TTL_MS, async () => {
+            let query = `
+                SELECT a.*, u.nombre as usuario_nombre, p.titulo as proyecto_titulo, p.imagen_url as proyecto_imagen
+                FROM asignaciones a
+                JOIN usuarios u ON a.usuario_id = u.id
+                LEFT JOIN proyectos p ON a.proyecto_id = p.id
+            `;
+            const params = [];
+
+            if (isAdmin) {
+                // Admin ve todo
+            } else if (isLeader) {
+                if (!userGroupId) {
+                    query += ' WHERE a.usuario_id = ? ';
+                    params.push(session.usuario_id);
+                } else {
+                    query += ' WHERE (u.grupo_id = ? OR a.usuario_id = ?) ';
+                    params.push(userGroupId, session.usuario_id);
+                }
+            } else {
                 query += ' WHERE a.usuario_id = ? ';
                 params.push(session.usuario_id);
-            } else {
-                query += ' WHERE (u.grupo_id = ? OR a.usuario_id = ?) ';
-                params.push(userGroupId, session.usuario_id);
             }
-        } else {
-            query += ' WHERE a.usuario_id = ? ';
-            params.push(session.usuario_id);
-        }
 
-        query += ' ORDER BY a.asignado_en DESC';
+            query += ' ORDER BY a.asignado_en DESC';
 
-        const asignaciones = await db.prepare(query).all(...params);
+            return db.prepare(query).all(...params);
+        });
         return NextResponse.json(asignaciones);
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -521,6 +532,9 @@ export async function POST(request) {
             group_id: targetGroupId ? Number(targetGroupId) : null,
             ts: Date.now(),
         });
+
+        invalidateCacheByPrefix('assignments:');
+        invalidateCacheByPrefix('stats:');
 
         return NextResponse.json(asignacion);
     } catch (error) {
