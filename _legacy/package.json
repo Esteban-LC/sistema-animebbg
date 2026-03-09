@@ -1,0 +1,17 @@
+{
+  "name": "sistema-animebbg",
+  "version": "1.0.0",
+  "description": "Sistema de gestión de trabajos de traducción de manga/anime",
+  "scripts": {
+    "start": "concurrently --kill-others-on-fail -n BACKEND,FRONTEND -c bgBlue.bold,bgMagenta.bold \"cd backend && npm start\" \"cd frontend && npm run dev\"",
+    "install-all": "cd backend && npm install && cd ../frontend && npm install",
+    "backend": "cd backend && npm start",
+    "frontend": "cd frontend && npm run dev"
+  },
+  "keywords": ["manga", "anime", "traduccion", "gestion"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

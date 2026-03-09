@@ -1,0 +1,14 @@
+[
+    {
+        "relation": [
+            "delegate_permission/common.handle_all_urls"
+        ],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "app.vercel.sistema_animebbg.twa",
+            "sha256_cert_fingerprints": [
+                "F1:7B:CB:5C:D3:C6:24:87:6D:8A:D9:7D:3A:92:13:1E:97:89:96:8A:99:3F:A2:FF:C9:76:05:CD:58:F8:B1:90"
+            ]
+        }
+    }
+]
