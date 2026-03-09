@@ -48,3 +48,6 @@ gestorbbg-10a37b1cc6ad.json
 
 # legacy node_modules
 _legacy/node_modules/
+
+# Claude Code local settings
+.claude/settings.local.json
