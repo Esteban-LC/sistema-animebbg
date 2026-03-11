@@ -8,6 +8,18 @@ function normalizeRoles(rawRoles) {
     return list.map((role) => role === 'Traductor KO/JAP' ? 'Traductor KO' : role);
 }
 
+function shouldUseSecureCookies(request) {
+    if (process.env.AUTH_COOKIE_SECURE === 'true') return true;
+    if (process.env.AUTH_COOKIE_SECURE === 'false') return false;
+
+    const forwardedProto = request.headers.get('x-forwarded-proto');
+    if (forwardedProto) {
+        return forwardedProto.split(',')[0].trim() === 'https';
+    }
+
+    return request.nextUrl?.protocol === 'https:';
+}
+
 export async function POST(request) {
     try {
         const { username, password, rememberMe } = await request.json();
@@ -52,7 +64,7 @@ export async function POST(request) {
         // 3. Set Cookie
         (await cookies()).set('auth_token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: shouldUseSecureCookies(request),
             sameSite: 'lax',
             expires: expiresAt,
             maxAge: Math.floor(sessionDurationMs / 1000),
