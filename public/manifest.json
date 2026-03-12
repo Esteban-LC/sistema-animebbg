@@ -1,21 +1,23 @@
 {
-    "name": "Sistema AnimeBBG",
-    "short_name": "AnimeBBG",
-    "description": "Sistema de gestión de proyectos y asignaciones para AnimeBBG",
-    "start_url": "/",
-    "display": "standalone",
-    "background_color": "#121212",
-    "theme_color": "#121212",
-    "icons": [
-        {
-            "src": "/icon-192x192.png",
-            "sizes": "192x192",
-            "type": "image/png"
-        },
-        {
-            "src": "/icon-512x512.png",
-            "sizes": "512x512",
-            "type": "image/png"
-        }
-    ]
+  "name": "Sistema AnimeBBG",
+  "short_name": "AnimeBBG",
+  "description": "Sistema de gestion de proyectos y asignaciones para AnimeBBG",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
 }
