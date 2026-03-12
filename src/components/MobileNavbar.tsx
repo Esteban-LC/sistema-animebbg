@@ -15,6 +15,7 @@ export default function MobileNavbar() {
         if (pathname.includes('/asignaciones')) return 'Asignaciones';
         if (pathname.includes('/proyectos')) return 'Proyectos';
         if (pathname.includes('/series')) return 'Series';
+        if (pathname.includes('/sugerencias')) return 'Sugerencias';
         if (pathname.includes('/completados')) return 'Completados';
         if (pathname.includes('/ranking')) return 'Ranking';
         if (pathname.includes('/notificaciones')) return 'Notificaciones';

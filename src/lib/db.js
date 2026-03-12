@@ -14,6 +14,7 @@ const isProd = process.env.NODE_ENV === 'production' || process.env.USE_TURSO ==
 
 let dbInstance = null;
 let performanceIndexesEnsured = false;
+let suggestionSchemaEnsured = false;
 
 export function getDb() {
   if (dbInstance) return dbInstance;
@@ -118,6 +119,103 @@ export async function ensurePerformanceIndexes(db) {
   }
 
   performanceIndexesEnsured = true;
+}
+
+export async function ensureSuggestionSchema(db) {
+  if (suggestionSchemaEnsured || !db?.prepare) return;
+
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS sugerencia_rondas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      titulo TEXT NOT NULL,
+      descripcion TEXT,
+      estado TEXT NOT NULL DEFAULT 'borrador' CHECK(estado IN ('borrador', 'activa', 'pausada', 'cerrada')),
+      grupo_id INTEGER REFERENCES grupos(id),
+      creado_por INTEGER NOT NULL REFERENCES usuarios(id),
+      iniciado_en DATETIME,
+      pausado_en DATETIME,
+      cerrado_en DATETIME,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS sugerencias (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ronda_id INTEGER NOT NULL REFERENCES sugerencia_rondas(id),
+      titulo TEXT NOT NULL,
+      descripcion TEXT NOT NULL,
+      categoria TEXT,
+      imagen_url TEXT,
+      estado TEXT NOT NULL DEFAULT 'activa' CHECK(estado IN ('activa', 'archivada')),
+      creada_por INTEGER NOT NULL REFERENCES usuarios(id),
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS sugerencia_votos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ronda_id INTEGER NOT NULL REFERENCES sugerencia_rondas(id),
+      sugerencia_id INTEGER NOT NULL REFERENCES sugerencias(id),
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (ronda_id, usuario_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS sugerencia_votos_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ronda_id INTEGER NOT NULL REFERENCES sugerencia_rondas(id),
+      sugerencia_id INTEGER NOT NULL REFERENCES sugerencias(id),
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (ronda_id, sugerencia_id, usuario_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS sugerencias_config (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      ronda_actual_id INTEGER REFERENCES sugerencia_rondas(id),
+      updated_by INTEGER REFERENCES usuarios(id),
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_sugerencia_rondas_estado_grupo ON sugerencia_rondas(estado, grupo_id, creado_en DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_sugerencias_ronda_estado ON sugerencias(ronda_id, estado, creado_en DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_sugerencia_votos_ronda ON sugerencia_votos(ronda_id, sugerencia_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sugerencia_votos_usuario ON sugerencia_votos(usuario_id, creado_en DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_sugerencia_votos_items_ronda ON sugerencia_votos_items(ronda_id, sugerencia_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sugerencia_votos_items_usuario ON sugerencia_votos_items(usuario_id, creado_en DESC)`,
+  ];
+
+  for (const sql of statements) {
+    await db.prepare(sql).run();
+  }
+
+  const safeStatements = [
+    `ALTER TABLE sugerencia_rondas ADD COLUMN descripcion TEXT`,
+    `ALTER TABLE sugerencia_rondas ADD COLUMN grupo_id INTEGER REFERENCES grupos(id)`,
+    `ALTER TABLE sugerencia_rondas ADD COLUMN creado_por INTEGER REFERENCES usuarios(id)`,
+    `ALTER TABLE sugerencia_rondas ADD COLUMN iniciado_en DATETIME`,
+    `ALTER TABLE sugerencia_rondas ADD COLUMN pausado_en DATETIME`,
+    `ALTER TABLE sugerencia_rondas ADD COLUMN cerrado_en DATETIME`,
+    `ALTER TABLE sugerencia_rondas ADD COLUMN start_at DATETIME`,
+    `ALTER TABLE sugerencia_rondas ADD COLUMN end_at DATETIME`,
+    `ALTER TABLE sugerencias ADD COLUMN categoria TEXT`,
+    `ALTER TABLE sugerencias ADD COLUMN imagen_url TEXT`,
+    `ALTER TABLE sugerencias ADD COLUMN estado TEXT NOT NULL DEFAULT 'activa'`,
+    `ALTER TABLE sugerencias ADD COLUMN creada_por INTEGER REFERENCES usuarios(id)`,
+    `ALTER TABLE sugerencias ADD COLUMN url_publicacion TEXT`,
+    `ALTER TABLE sugerencias ADD COLUMN sinopsis TEXT`,
+    `ALTER TABLE sugerencias ADD COLUMN tipo_obra TEXT`,
+    `ALTER TABLE sugerencias ADD COLUMN proyecto_exportado_id INTEGER REFERENCES proyectos(id)`,
+  ];
+
+  for (const sql of safeStatements) {
+    try {
+      await db.prepare(sql).run();
+    } catch {
+      // Ignore duplicate-column errors when the schema already exists.
+    }
+  }
+
+  await db.prepare(`
+    INSERT OR IGNORE INTO sugerencia_votos_items (ronda_id, sugerencia_id, usuario_id, creado_en)
+    SELECT ronda_id, sugerencia_id, usuario_id, creado_en
+    FROM sugerencia_votos
+  `).run();
+
+  suggestionSchemaEnsured = true;
 }
 
 function initTables(db) {
@@ -300,4 +398,70 @@ function initTables(db) {
   runSafe(`CREATE INDEX IF NOT EXISTS idx_asignaciones_usuario_estado ON asignaciones(usuario_id, estado)`);
   runSafe(`CREATE INDEX IF NOT EXISTS idx_asignaciones_proyecto_capitulo_rol_estado ON asignaciones(proyecto_id, capitulo, rol, estado)`);
   runSafe(`CREATE INDEX IF NOT EXISTS idx_asignaciones_usuario_fecha ON asignaciones(usuario_id, asignado_en DESC)`);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sugerencia_rondas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      titulo TEXT NOT NULL,
+      descripcion TEXT,
+      estado TEXT NOT NULL DEFAULT 'borrador' CHECK(estado IN ('borrador', 'activa', 'pausada', 'cerrada')),
+      grupo_id INTEGER REFERENCES grupos(id),
+      creado_por INTEGER NOT NULL REFERENCES usuarios(id),
+      iniciado_en DATETIME,
+      pausado_en DATETIME,
+      cerrado_en DATETIME,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sugerencias (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ronda_id INTEGER NOT NULL REFERENCES sugerencia_rondas(id),
+      titulo TEXT NOT NULL,
+      descripcion TEXT NOT NULL,
+      categoria TEXT,
+      imagen_url TEXT,
+      estado TEXT NOT NULL DEFAULT 'activa' CHECK(estado IN ('activa', 'archivada')),
+      creada_por INTEGER NOT NULL REFERENCES usuarios(id),
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sugerencia_votos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ronda_id INTEGER NOT NULL REFERENCES sugerencia_rondas(id),
+      sugerencia_id INTEGER NOT NULL REFERENCES sugerencias(id),
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (ronda_id, usuario_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS sugerencia_votos_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ronda_id INTEGER NOT NULL REFERENCES sugerencia_rondas(id),
+      sugerencia_id INTEGER NOT NULL REFERENCES sugerencias(id),
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (ronda_id, sugerencia_id, usuario_id)
+    );
+  `);
+  runSafe(`ALTER TABLE sugerencia_rondas ADD COLUMN descripcion TEXT`);
+  runSafe(`ALTER TABLE sugerencia_rondas ADD COLUMN grupo_id INTEGER REFERENCES grupos(id)`);
+  runSafe(`ALTER TABLE sugerencia_rondas ADD COLUMN creado_por INTEGER REFERENCES usuarios(id)`);
+  runSafe(`ALTER TABLE sugerencia_rondas ADD COLUMN iniciado_en DATETIME`);
+  runSafe(`ALTER TABLE sugerencia_rondas ADD COLUMN pausado_en DATETIME`);
+  runSafe(`ALTER TABLE sugerencia_rondas ADD COLUMN cerrado_en DATETIME`);
+  runSafe(`ALTER TABLE sugerencias ADD COLUMN categoria TEXT`);
+  runSafe(`ALTER TABLE sugerencias ADD COLUMN imagen_url TEXT`);
+  runSafe(`ALTER TABLE sugerencias ADD COLUMN estado TEXT NOT NULL DEFAULT 'activa'`);
+  runSafe(`ALTER TABLE sugerencias ADD COLUMN creada_por INTEGER REFERENCES usuarios(id)`);
+  runSafe(`CREATE INDEX IF NOT EXISTS idx_sugerencia_rondas_estado_grupo ON sugerencia_rondas(estado, grupo_id, creado_en DESC)`);
+  runSafe(`CREATE INDEX IF NOT EXISTS idx_sugerencias_ronda_estado ON sugerencias(ronda_id, estado, creado_en DESC)`);
+  runSafe(`CREATE INDEX IF NOT EXISTS idx_sugerencia_votos_ronda ON sugerencia_votos(ronda_id, sugerencia_id)`);
+  runSafe(`CREATE INDEX IF NOT EXISTS idx_sugerencia_votos_usuario ON sugerencia_votos(usuario_id, creado_en DESC)`);
+  runSafe(`CREATE INDEX IF NOT EXISTS idx_sugerencia_votos_items_ronda ON sugerencia_votos_items(ronda_id, sugerencia_id)`);
+  runSafe(`CREATE INDEX IF NOT EXISTS idx_sugerencia_votos_items_usuario ON sugerencia_votos_items(usuario_id, creado_en DESC)`);
+  runSafe(`
+    INSERT OR IGNORE INTO sugerencia_votos_items (ronda_id, sugerencia_id, usuario_id, creado_en)
+    SELECT ronda_id, sugerencia_id, usuario_id, creado_en
+    FROM sugerencia_votos
+  `);
 }

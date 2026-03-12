@@ -155,6 +155,21 @@ export default function Sidebar() {
                                     <span className="font-semibold">Historial</span>
                                 </Link>
                                 <Link
+                                    href="/sugerencias"
+                                    onClick={close}
+                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 group relative overflow-hidden ${isActive('/sugerencias')
+                                        ? 'bg-gradient-to-r from-primary/20 to-primary/10 text-primary shadow-glow shadow-primary/20'
+                                        : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
+                                        }`}
+                                >
+                                    {isActive('/sugerencias') && (
+                                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full shadow-glow shadow-primary/50"></div>
+                                    )}
+                                    <span className={`material-icons-round transition-all duration-300 ${isActive('/sugerencias') ? 'text-primary scale-110' : 'group-hover:scale-110'
+                                        }`}>how_to_vote</span>
+                                    <span className="font-semibold">Sugerencias</span>
+                                </Link>
+                                <Link
                                     href="/ranking"
                                     onClick={close}
                                     className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 group relative overflow-hidden ${isActive('/ranking')
@@ -285,6 +300,17 @@ export default function Sidebar() {
                                 >
                                     <span className="material-icons-round">history</span>
                                     <span>Historial</span>
+                                </Link>
+                                <Link
+                                    href="/sugerencias"
+                                    onClick={close}
+                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/sugerencias')
+                                        ? 'bg-primary/10 text-primary'
+                                        : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
+                                        }`}
+                                >
+                                    <span className="material-icons-round">how_to_vote</span>
+                                    <span>Sugerencias</span>
                                 </Link>
                                 <Link
                                     href="/ranking"

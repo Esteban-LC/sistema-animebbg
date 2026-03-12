@@ -50,6 +50,7 @@ export default function BottomNav() {
             { href: '/', icon: 'dashboard', label: 'Inicio' },
             { href: '/proyectos', icon: 'auto_stories', label: 'Proyectos' }, // Changed icon to match sidebar better if needed, or keep library_books
             { href: '/asignaciones', icon: 'assignment', label: 'Tareas' },
+            { href: '/sugerencias', icon: 'how_to_vote', label: 'Suger.' },
             { href: '/usuarios', icon: 'group', label: 'Staff' },
             { href: '/completados', icon: 'task_alt', label: 'Done' },
             { href: '/historial', icon: 'history', label: 'Historial' },
@@ -58,6 +59,7 @@ export default function BottomNav() {
         navItems = [
             { href: '/staff', icon: 'assignment_ind', label: 'Mis Tareas' },
             { href: '/series', icon: 'auto_stories', label: 'Series' },
+            { href: '/sugerencias', icon: 'how_to_vote', label: 'Suger.' },
             { href: '/asignaciones', icon: 'assignment', label: 'Tareas G.' },
             { href: '/proyectos', icon: 'auto_stories', label: 'Proyectos' }, // Use auto_stories as icon for Projects, matches PC
             { href: '/usuarios', icon: 'group', label: 'Mi Staff' },
@@ -67,6 +69,7 @@ export default function BottomNav() {
         navItems = [
             { href: '/staff', icon: 'assignment', label: 'Mis Tareas' },
             { href: '/series', icon: 'auto_stories', label: 'Series' },
+            { href: '/sugerencias', icon: 'how_to_vote', label: 'Suger.' },
             { href: '/historial', icon: 'history', label: 'Historial' },
         ];
     }
