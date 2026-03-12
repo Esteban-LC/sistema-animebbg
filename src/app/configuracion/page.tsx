@@ -27,15 +27,18 @@ export default function ConfiguracionPage() {
 
         const boot = async () => {
             try {
-                const [keyRes, statusRes] = await Promise.all([
+                const [keyRes] = await Promise.all([
                     fetch('/api/push/public-key', { cache: 'no-store' }),
-                    fetch('/api/push/subscription', { cache: 'no-store' }),
                 ]);
                 const keyData = await keyRes.json().catch(() => ({}));
-                const statusData = await statusRes.json().catch(() => ({}));
                 setPushConfigured(Boolean(keyData?.configured));
                 setPushPublicKey(String(keyData?.publicKey || ''));
-                setPushEnabled(Boolean(statusData?.enabled));
+
+                // Verificar si ESTE navegador/contexto tiene suscripción activa
+                const registration = await navigator.serviceWorker.register('/sw.js');
+                await navigator.serviceWorker.ready;
+                const existingSub = await registration.pushManager.getSubscription();
+                setPushEnabled(Boolean(existingSub));
             } catch {
                 // ignore bootstrap errors
             }
