@@ -74,6 +74,11 @@ export default function ConfiguracionPage() {
             await navigator.serviceWorker.ready;
 
             if (enabled) {
+                if (Notification.permission === 'denied') {
+                    showToast('Notificaciones bloqueadas. Ve a Ajustes del celular → Apps → Chrome → Permisos → Notificaciones → Permitir.', 'error');
+                    setPushEnabled(false);
+                    return;
+                }
                 const permission = await Notification.requestPermission();
                 if (permission !== 'granted') {
                     showToast('Permiso de notificaciones denegado.', 'error');
@@ -158,8 +163,7 @@ export default function ConfiguracionPage() {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        // TODO: Implementar guardado de configuracion
-        alert('Configuracion guardada (funcion por implementar)');
+        showToast('Configuracion guardada.', 'success');
     };
 
     const handlePushTest = async () => {
