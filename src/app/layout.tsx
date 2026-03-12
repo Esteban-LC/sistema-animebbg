@@ -12,7 +12,7 @@ export const metadata = {
 };
 
 export const viewport = {
-  themeColor: '#121212',
+  themeColor: '#0A0E17',
 };
 
 import { ToastProvider } from '@/context/ToastContext';
