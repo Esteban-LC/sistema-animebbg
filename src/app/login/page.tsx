@@ -63,6 +63,7 @@ export default function LoginPage() {
                                     onChange={(e) => setUsername(e.target.value)}
                                     className="w-full bg-background-dark border border-gray-800 rounded-xl py-3.5 pl-12 pr-4 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-gray-600"
                                     placeholder="Ingresa tu usuario"
+                                    autoComplete="username"
                                     required
                                 />
                             </div>
@@ -78,6 +79,7 @@ export default function LoginPage() {
                                     onChange={(e) => setPassword(e.target.value)}
                                     className="w-full bg-background-dark border border-gray-800 rounded-xl py-3.5 pl-12 pr-12 text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all placeholder:text-gray-600"
                                     placeholder="••••••••"
+                                    autoComplete="current-password"
                                     required
                                 />
                                 <button
