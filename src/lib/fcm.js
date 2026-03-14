@@ -38,7 +38,7 @@ export function isFcmConfigured() {
 }
 
 export async function ensureFcmTokensTable(db) {
-    db.prepare(`
+    await db.prepare(`
         CREATE TABLE IF NOT EXISTS fcm_tokens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER NOT NULL,
@@ -48,7 +48,7 @@ export async function ensureFcmTokensTable(db) {
             FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
         )
     `).run();
-    db.prepare(`
+    await db.prepare(`
         CREATE INDEX IF NOT EXISTS idx_fcm_tokens_user
         ON fcm_tokens(usuario_id)
     `).run();
@@ -56,22 +56,22 @@ export async function ensureFcmTokensTable(db) {
 
 export async function saveFcmToken(db, userId, token) {
     await ensureFcmTokensTable(db);
-    const existing = db.prepare('SELECT id FROM fcm_tokens WHERE token = ?').get(token);
+    const existing = await db.prepare('SELECT id FROM fcm_tokens WHERE token = ?').get(token);
     if (existing) {
-        db.prepare('UPDATE fcm_tokens SET usuario_id = ?, updated_at = CURRENT_TIMESTAMP WHERE token = ?').run(Number(userId), token);
+        await db.prepare('UPDATE fcm_tokens SET usuario_id = ?, updated_at = CURRENT_TIMESTAMP WHERE token = ?').run(Number(userId), token);
     } else {
-        db.prepare('INSERT INTO fcm_tokens (usuario_id, token) VALUES (?, ?)').run(Number(userId), token);
+        await db.prepare('INSERT INTO fcm_tokens (usuario_id, token) VALUES (?, ?)').run(Number(userId), token);
     }
 }
 
 export async function removeFcmToken(db, userId, token) {
     await ensureFcmTokensTable(db);
-    db.prepare('DELETE FROM fcm_tokens WHERE usuario_id = ? AND token = ?').run(Number(userId), token);
+    await db.prepare('DELETE FROM fcm_tokens WHERE usuario_id = ? AND token = ?').run(Number(userId), token);
 }
 
 export async function getUserFcmTokens(db, userId) {
     await ensureFcmTokensTable(db);
-    const rows = db.prepare('SELECT token FROM fcm_tokens WHERE usuario_id = ?').all(Number(userId));
+    const rows = await db.prepare('SELECT token FROM fcm_tokens WHERE usuario_id = ?').all(Number(userId));
     return rows.map(r => r.token);
 }
 
@@ -107,7 +107,7 @@ export async function sendFcmToUser(db, userId, payload) {
             const code = error?.code || '';
             if (code === 'messaging/registration-token-not-registered' ||
                 code === 'messaging/invalid-registration-token') {
-                db.prepare('DELETE FROM fcm_tokens WHERE token = ?').run(token);
+                await db.prepare('DELETE FROM fcm_tokens WHERE token = ?').run(token);
             }
         }
     }
