@@ -2,6 +2,7 @@ import './globals.css';
 import Sidebar from '@/components/Sidebar';
 import MobileNavbar from '@/components/MobileNavbar';
 import BottomNav from '@/components/BottomNav';
+import CapacitorPushInit from '@/components/CapacitorPushInit';
 import { SidebarProvider } from '@/context/SidebarContext';
 import { UserProvider } from '@/context/UserContext';
 
@@ -40,6 +41,7 @@ export default function RootLayout({
           <UserProvider>
             <ToastProvider>
               <NotificationsProvider>
+                <CapacitorPushInit />
                 {/* Provider Wrapper */}
                 <div className="flex h-full w-full">
                   <Sidebar />

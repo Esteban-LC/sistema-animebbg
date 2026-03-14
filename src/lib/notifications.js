@@ -1,6 +1,7 @@
 let ensured = false;
 import { publishNotificationEvent } from '@/lib/realtime';
 import { sendPushToUser } from '@/lib/push';
+import { sendFcmToUser } from '@/lib/fcm';
 
 export async function ensureNotificationsTable(db) {
     if (ensured) return;
@@ -57,12 +58,11 @@ export async function createNotification(db, { usuarioId, tipo, titulo, mensaje,
     });
 
     try {
-        await sendPushToUser(db, Number(usuarioId), {
-            title: titulo,
-            body: mensaje,
-            url: '/notificaciones',
-            tag: tipo || 'general',
-        });
+        const pushPayload = { title: titulo, body: mensaje, url: '/notificaciones', tag: tipo || 'general' };
+        await Promise.allSettled([
+            sendPushToUser(db, Number(usuarioId), pushPayload),
+            sendFcmToUser(db, Number(usuarioId), pushPayload),
+        ]);
     } catch {
         // keep in-app notification flow even if push fails
     }

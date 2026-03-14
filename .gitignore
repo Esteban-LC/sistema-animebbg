@@ -45,6 +45,8 @@ next-env.d.ts
 # credentials / secrets
 gestorbbg-10a37b1cc6ad.json
 *.json.key
+firebase-service-account.json
+google-services.json
 
 # legacy node_modules
 _legacy/node_modules/
