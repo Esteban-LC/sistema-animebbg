@@ -21,6 +21,7 @@ export const viewport = {
 
 import { ToastProvider } from '@/context/ToastContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
+import { SocketProvider } from '@/context/SocketContext';
 
 export default function RootLayout({
   children,
@@ -41,7 +42,8 @@ export default function RootLayout({
           <UserProvider>
             <ToastProvider>
               <NotificationsProvider>
-                <CapacitorPushInit />
+                <SocketProvider>
+                  <CapacitorPushInit />
                 {/* Provider Wrapper */}
                 <div className="flex h-full w-full">
                   <Sidebar />
@@ -53,6 +55,7 @@ export default function RootLayout({
                     <BottomNav />
                   </div>
                 </div>
+                </SocketProvider>
               </NotificationsProvider>
             </ToastProvider>
           </UserProvider>

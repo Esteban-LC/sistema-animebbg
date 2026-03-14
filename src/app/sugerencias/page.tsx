@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useUser } from '@/context/UserContext';
 import { useToast } from '@/context/ToastContext';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { useSocket } from '@/context/SocketContext';
 
 type TabKey = 'actuales' | 'historial' | 'mias' | 'votadas';
 
@@ -172,15 +173,15 @@ function voteLabel(total: number) {
 }
 
 function CoverCard({
-    title,
-    subtitle,
-    imageUrl,
-    badge,
-    meta,
-    footer,
-    children,
-    imageAction,
-    imageOverlay,
+  title,
+  subtitle,
+  imageUrl,
+  badge,
+  meta,
+  footer,
+  children,
+  imageAction,
+  imageOverlay,
 }: {
   title: string;
   subtitle?: string;
@@ -195,11 +196,11 @@ function CoverCard({
   return (
     <article className="group bg-surface-dark rounded-xl overflow-hidden border border-gray-800 shadow-lg max-w-[220px] w-full">
       <div className="relative aspect-[4/5] bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-          {imageUrl ? (
-            <img src={imageUrl} alt={title} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-[radial-gradient(circle_at_top_left,_rgba(239,68,68,0.35),_transparent_35%),linear-gradient(135deg,_rgba(17,24,39,0.95),_rgba(3,7,18,1))]" />
-          )}
+        {imageUrl ? (
+          <img src={imageUrl} alt={title} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-[radial-gradient(circle_at_top_left,_rgba(239,68,68,0.35),_transparent_35%),linear-gradient(135deg,_rgba(17,24,39,0.95),_rgba(3,7,18,1))]" />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-transparent" />
         {imageOverlay && <div className="absolute inset-0 z-10">{imageOverlay}</div>}
         {imageAction && <div className="absolute inset-0 z-20 md:hidden">{imageAction}</div>}
@@ -221,6 +222,7 @@ function CoverCard({
 export default function SugerenciasPage() {
   const { user } = useUser();
   const { showToast } = useToast();
+  const { socket } = useSocket();
   const [activeTab, setActiveTab] = useState<TabKey>('actuales');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -264,6 +266,17 @@ export default function SugerenciasPage() {
     loadData();
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!socket) return;
+    const handleContentChanged = () => {
+      loadData();
+    };
+    socket.on('content-changed', handleContentChanged);
+    return () => {
+      socket.off('content-changed', handleContentChanged);
+    };
+  }, [socket]);
+
   async function saveSchedule() {
     if (!configForm.start_at || !configForm.end_at) return;
     setSaving(true);
@@ -281,6 +294,7 @@ export default function SugerenciasPage() {
       if (!res.ok) throw new Error(json.error || 'No se pudo guardar el periodo');
       showToast('Periodo de votacion actualizado', 'success');
       await loadData();
+      socket?.emit('content-changed');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error guardando periodo', 'error');
     } finally {
@@ -312,6 +326,7 @@ export default function SugerenciasPage() {
       setMobileVoteCardId(null);
       showToast('Sugerencia publicada', 'success');
       await loadData();
+      socket?.emit('content-changed');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error publicando sugerencia', 'error');
     } finally {
@@ -334,6 +349,7 @@ export default function SugerenciasPage() {
       if (!res.ok) throw new Error(json.error || 'No se pudo enviar a proyectos');
       showToast(json.reused ? 'Proyecto ya existente vinculado' : 'Sugerencia agregada a proyectos', 'success');
       await loadData();
+      socket?.emit('content-changed');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error exportando a proyectos', 'error');
     } finally {
@@ -354,6 +370,7 @@ export default function SugerenciasPage() {
       setMobileVoteCardId(null);
       showToast(json.already_voted ? 'Ese voto ya estaba registrado' : 'Voto registrado', 'success');
       await loadData();
+      socket?.emit('content-changed');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error registrando voto', 'error');
     } finally {
@@ -374,6 +391,7 @@ export default function SugerenciasPage() {
       setMobileVoteCardId(null);
       showToast('Voto retirado', 'success');
       await loadData();
+      socket?.emit('content-changed');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error quitando voto', 'error');
     } finally {
@@ -394,6 +412,7 @@ export default function SugerenciasPage() {
       if (!res.ok) throw new Error(json.error || 'No se pudo actualizar el estado');
       showToast('Estado de votacion actualizado', 'success');
       await loadData();
+      socket?.emit('content-changed');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error actualizando votacion', 'error');
     } finally {
@@ -413,6 +432,7 @@ export default function SugerenciasPage() {
       setDeleteTarget(null);
       setExpandedHistoryId((prev) => (prev === roundId ? null : prev));
       await loadData();
+      socket?.emit('content-changed');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error eliminando periodo', 'error');
     } finally {
@@ -423,6 +443,7 @@ export default function SugerenciasPage() {
   const current = data?.current || null;
   const currentSuggestions = useMemo(() => current?.suggestions || [], [current]);
   const canCreateSuggestion = current?.estado === 'activa';
+  const remainingVotes = Math.max(0, (current?.max_votes_per_round || 0) - (current?.viewer_vote_count || 0));
 
   function openProposalTab() {
     setActiveTab('mias');
@@ -499,9 +520,8 @@ export default function SugerenciasPage() {
                     <button
                       key={tab.key}
                       onClick={() => setActiveTab(tab.key)}
-                      className={`pb-3 text-sm font-bold tracking-wide transition-colors border-b-2 ${
-                        activeTab === tab.key ? 'text-primary border-primary' : 'text-muted-dark border-transparent hover:text-white'
-                      }`}
+                      className={`pb-3 text-sm font-bold tracking-wide transition-colors border-b-2 ${activeTab === tab.key ? 'text-primary border-primary' : 'text-muted-dark border-transparent hover:text-white'
+                        }`}
                     >
                       {tab.label}
                     </button>
@@ -793,10 +813,10 @@ export default function SugerenciasPage() {
                                       </div>
                                     ))
                                   ) : (
-                                  <span className="text-[11px] text-muted-dark">Sin votos aun</span>
-                                )}
+                                    <span className="text-[11px] text-muted-dark">Sin votos aun</span>
+                                  )}
+                                </div>
                               </div>
-                            </div>
                               {canManage && (
                                 <button
                                   onClick={() => exportToProject(item.id)}
@@ -819,9 +839,8 @@ export default function SugerenciasPage() {
                                 <button
                                   onClick={() => requestVote(item)}
                                   disabled={saving || current.estado !== 'activa'}
-                                  className={`flex-1 px-3 py-2 rounded-xl text-[11px] font-bold ${
-                                    item.voted_by_me ? 'bg-white text-black' : 'bg-red-500 text-white'
-                                  } disabled:opacity-50`}
+                                  className={`flex-1 px-3 py-2 rounded-xl text-[11px] font-bold ${item.voted_by_me ? 'bg-white text-black' : 'bg-red-500 text-white'
+                                    } disabled:opacity-50`}
                                 >
                                   {item.voted_by_me ? 'Confirmar voto' : 'Votar'}
                                 </button>
@@ -840,9 +859,8 @@ export default function SugerenciasPage() {
                                   <button
                                     onClick={() => requestVote(item)}
                                     disabled={saving || current.estado !== 'activa'}
-                                    className={`w-full px-3 py-2 rounded-xl text-[11px] font-bold ${
-                                      item.voted_by_me ? 'bg-white text-black' : 'bg-red-500 text-white'
-                                    } disabled:opacity-50`}
+                                    className={`w-full px-3 py-2 rounded-xl text-[11px] font-bold ${item.voted_by_me ? 'bg-white text-black' : 'bg-red-500 text-white'
+                                      } disabled:opacity-50`}
                                   >
                                     {item.voted_by_me ? 'Confirmar voto' : 'Votar'}
                                   </button>
@@ -980,48 +998,48 @@ export default function SugerenciasPage() {
                 </div>
               )}
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 justify-items-start">
-              {(data?.mySuggestions || []).map((item) => (
-                <CoverCard
-                  key={item.id}
-                  title={item.titulo}
-                  subtitle={item.tipo_obra}
-                  imageUrl={item.imagen_url}
-                  badge={
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border ${STATE_STYLES[item.ronda_estado] || STATE_STYLES.borrador}`}>
-                      {stateLabel(item.ronda_estado)}
-                    </span>
-                  }
-                  meta={
-                    <p className="text-xs text-gray-200">
-                      Periodo: {formatDateTime(item.start_at)} - {formatDateTime(item.end_at)}
-                    </p>
-                  }
-                  footer={
-                    <>
-                      {item.sinopsis && <p className="text-sm text-gray-300">{item.sinopsis}</p>}
-                      <div className="flex flex-wrap gap-2">
-                        <a href={item.url_publicacion} target="_blank" rel="noreferrer" className="inline-flex px-2.5 py-1.5 rounded-xl border border-gray-700 text-[10px] font-bold text-white hover:border-primary">
-                          Abrir fuente
-                        </a>
-                        {canManage && (
-                          <button
-                            onClick={() => exportToProject(item.id)}
-                            disabled={saving || Boolean(item.proyecto_exportado_id)}
-                            className="inline-flex px-2.5 py-1.5 rounded-xl border border-gray-700 text-[10px] font-bold text-white hover:border-primary disabled:opacity-50"
-                          >
-                            {item.proyecto_exportado_id ? 'Ya en proyectos' : 'Agregar a proyectos'}
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  }
-                />
-              ))}
-              {!loading && (data?.mySuggestions || []).length === 0 && (
-                <div className="lg:col-span-2 rounded-2xl border border-dashed border-gray-700 bg-surface-dark p-10 text-center text-muted-dark">
-                  Aun no has enviado propuestas.
-                </div>
-              )}
+                {(data?.mySuggestions || []).map((item) => (
+                  <CoverCard
+                    key={item.id}
+                    title={item.titulo}
+                    subtitle={item.tipo_obra}
+                    imageUrl={item.imagen_url}
+                    badge={
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border ${STATE_STYLES[item.ronda_estado] || STATE_STYLES.borrador}`}>
+                        {stateLabel(item.ronda_estado)}
+                      </span>
+                    }
+                    meta={
+                      <p className="text-xs text-gray-200">
+                        Periodo: {formatDateTime(item.start_at)} - {formatDateTime(item.end_at)}
+                      </p>
+                    }
+                    footer={
+                      <>
+                        {item.sinopsis && <p className="text-sm text-gray-300">{item.sinopsis}</p>}
+                        <div className="flex flex-wrap gap-2">
+                          <a href={item.url_publicacion} target="_blank" rel="noreferrer" className="inline-flex px-2.5 py-1.5 rounded-xl border border-gray-700 text-[10px] font-bold text-white hover:border-primary">
+                            Abrir fuente
+                          </a>
+                          {canManage && (
+                            <button
+                              onClick={() => exportToProject(item.id)}
+                              disabled={saving || Boolean(item.proyecto_exportado_id)}
+                              className="inline-flex px-2.5 py-1.5 rounded-xl border border-gray-700 text-[10px] font-bold text-white hover:border-primary disabled:opacity-50"
+                            >
+                              {item.proyecto_exportado_id ? 'Ya en proyectos' : 'Agregar a proyectos'}
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    }
+                  />
+                ))}
+                {!loading && (data?.mySuggestions || []).length === 0 && (
+                  <div className="lg:col-span-2 rounded-2xl border border-dashed border-gray-700 bg-surface-dark p-10 text-center text-muted-dark">
+                    Aun no has enviado propuestas.
+                  </div>
+                )}
               </div>
             </div>
           )}
