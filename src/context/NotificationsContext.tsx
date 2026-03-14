@@ -27,6 +27,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
     const [unread, setUnread] = useState(0);
     const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+    const lastProcessedRef = useRef<Set<string>>(new Set());
+    const audioContextRef = useRef<AudioContext | null>(null);
+
     const [soundEnabled, setSoundEnabledState] = useState(() => {
         if (typeof window === 'undefined') return true;
         try {
@@ -38,7 +41,6 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         }
         return true;
     });
-    const audioContextRef = useRef<AudioContext | null>(null);
 
     const setSoundEnabled = useCallback((enabled: boolean) => {
         setSoundEnabledState(enabled);
@@ -178,21 +180,37 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     useEffect(() => {
         if (!socket) return;
         const handleRefresh = (data?: any) => {
-            console.log('[Socket] Event received (refresh required)', data);
+            console.log('[Socket] Refresh requested', data);
             refreshNotifications();
         };
 
+        const handleNotification = (payload: any) => {
+            console.log('[Socket] Notification received', payload);
+            
+            // Deduplicación rudimentaria para evitar doble toast (SSE + Socket)
+            const nId = payload?.id ? String(payload.id) : `temp-${Date.now()}`;
+            if (lastProcessedRef.current.has(nId)) return;
+            
+            lastProcessedRef.current.add(nId);
+            setTimeout(() => lastProcessedRef.current.delete(nId), 10000);
+
+            if (pathname !== '/notificaciones') {
+                showToast(payload?.titulo || 'Nueva notificacion', 'info');
+            }
+            playNotificationSound();
+            refreshNotifications();
+            
+            window.dispatchEvent(new CustomEvent('realtime:update', { detail: { type: 'notification', payload } }));
+        };
+
         socket.on('content-changed', handleRefresh);
-        socket.on('notification', (payload) => {
-            console.log('[Socket] Notification event received', payload);
-            handleRefresh(payload);
-        });
+        socket.on('notification', handleNotification);
 
         return () => {
             socket.off('content-changed', handleRefresh);
-            socket.off('notification', handleRefresh);
+            socket.off('notification', handleNotification);
         };
-    }, [socket, refreshNotifications]);
+    }, [socket, refreshNotifications, pathname, showToast, playNotificationSound]);
 
     useEffect(() => {
         if (!user || !REALTIME_SSE_ENABLED) return;
@@ -209,6 +227,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         es.addEventListener('notification', (ev) => {
             try {
                 const payload = JSON.parse((ev as MessageEvent).data || '{}');
+                
+                // Deduplicación
+                const nId = payload?.id ? String(payload.id) : `temp-sse-${Date.now()}`;
+                if (lastProcessedRef.current.has(nId)) return;
+                lastProcessedRef.current.add(nId);
+                setTimeout(() => lastProcessedRef.current.delete(nId), 10000);
+
                 if (pathname !== '/notificaciones') {
                     showToast(payload?.titulo || 'Nueva notificacion', 'info');
                 }
