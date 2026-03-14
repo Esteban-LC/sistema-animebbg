@@ -10,6 +10,13 @@ const port = process.env.PORT || 3000;
 const app = next({ dev, hostname, port: Number(port) });
 const handle = app.getRequestHandler();
 
+// Initialize global emitter for the bridge
+const { EventEmitter } = require('events');
+if (!global.__animebbgRealtimeEmitter) {
+  global.__animebbgRealtimeEmitter = new EventEmitter();
+  global.__animebbgRealtimeEmitter.setMaxListeners(200);
+}
+
 app.prepare().then(() => {
   const httpServer = createServer((req, res) => {
     try {
@@ -45,12 +52,17 @@ app.prepare().then(() => {
     // Bridge internal Events to Socket.io
     const emitter = global.__animebbgRealtimeEmitter;
     if (emitter) {
+      console.log('[Socket] Bridge active: internal emitter found');
       emitter.on('notification', (payload) => {
+        console.log('[Socket] Internal notification ->io.emit', payload?.id);
         io.emit('notification', payload);
       });
       emitter.on('content-changed', (payload) => {
-        io.emit('content-changed', payload);
+        console.log('[Socket] Internal content-changed -> io.emit');
+        io.emit('content-changed', payload || {});
       });
+    } else {
+      console.warn('[Socket] Bridge WARNING: global.__animebbgRealtimeEmitter NOT FOUND');
     }
 
   httpServer

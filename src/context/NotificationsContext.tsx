@@ -177,12 +177,16 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
     useEffect(() => {
         if (!socket) return;
-        const handleRefresh = () => {
+        const handleRefresh = (data?: any) => {
+            console.log('[Socket] Event received (refresh required)', data);
             refreshNotifications();
         };
 
         socket.on('content-changed', handleRefresh);
-        socket.on('notification', handleRefresh);
+        socket.on('notification', (payload) => {
+            console.log('[Socket] Notification event received', payload);
+            handleRefresh(payload);
+        });
 
         return () => {
             socket.off('content-changed', handleRefresh);
