@@ -26,16 +26,7 @@ self.addEventListener('push', (event) => {
         },
     };
 
-    event.waitUntil(
-        Promise.all([
-            self.registration.showNotification(title, options),
-            self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsArr) => {
-                for (const client of clientsArr) {
-                    client.postMessage({ type: 'PUSH_RECEIVED', payload });
-                }
-            })
-        ])
-    );
+    event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener('notificationclick', (event) => {

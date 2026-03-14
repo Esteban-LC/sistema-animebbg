@@ -141,23 +141,6 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         };
     }, [getAudioContext]);
 
-    // Escuchar mensajes del Service Worker (Web Push)
-    useEffect(() => {
-        if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
-        
-        const handleMessage = (event: MessageEvent) => {
-            if (event.data?.type === 'PUSH_RECEIVED') {
-                refreshNotifications();
-                // Despachar evento para componentes que no usan el contexto
-                window.dispatchEvent(new CustomEvent('notifications:changed'));
-            }
-        };
-
-        navigator.serviceWorker.addEventListener('message', handleMessage);
-        return () => {
-            navigator.serviceWorker.removeEventListener('message', handleMessage);
-        };
-    }, [refreshNotifications]);
 
     useEffect(() => {
         const runRefresh = () => {
@@ -194,27 +177,18 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
 
     useEffect(() => {
         if (!socket) return;
-        const handleContentChanged = () => {
+        const handleRefresh = () => {
             refreshNotifications();
-        };
-        const handleNotification = (payload: any) => {
-            if (pathname !== '/notificaciones') {
-                showToast(payload?.titulo || 'Nueva notificacion', 'info');
-            }
-            playNotificationSound();
-            refreshNotifications();
-            // Despachar evento local para otros componentes
-            window.dispatchEvent(new CustomEvent('realtime:update', { detail: { type: 'notification', payload } }));
         };
 
-        socket.on('content-changed', handleContentChanged);
-        socket.on('notification', handleNotification);
+        socket.on('content-changed', handleRefresh);
+        socket.on('notification', handleRefresh);
 
         return () => {
-            socket.off('content-changed', handleContentChanged);
-            socket.off('notification', handleNotification);
+            socket.off('content-changed', handleRefresh);
+            socket.off('notification', handleRefresh);
         };
-    }, [socket, refreshNotifications, pathname, showToast, playNotificationSound]);
+    }, [socket, refreshNotifications]);
 
     useEffect(() => {
         if (!user || !REALTIME_SSE_ENABLED) return;
