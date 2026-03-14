@@ -34,7 +34,7 @@ export const Toast: React.FC<ToastProps> = ({ message, type, onClose }) => {
     };
 
     return (
-        <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg shadow-black/20 text-white transform transition-all animate-slide-in-right ${bgColors[type]}`}>
+        <div style={{ top: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }} className={`fixed right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg shadow-black/20 text-white transform transition-all animate-slide-in-right ${bgColors[type]}`}>
             <span className="material-icons-round">{icons[type]}</span>
             <span className="font-medium text-sm">{message}</span>
             <button onClick={onClose} className="ml-2 hover:bg-white/20 rounded-full p-1 transition-colors">

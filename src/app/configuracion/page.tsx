@@ -242,7 +242,18 @@ export default function ConfiguracionPage() {
                                 </label>
                             </div>
 
-                            {!isCapacitor && (<>
+                            {isCapacitor ? (
+                            <div className="flex items-center justify-between p-4 bg-background-dark rounded-lg border border-gray-800">
+                                <div>
+                                    <h4 className="text-white font-medium">Notificaciones del sistema</h4>
+                                    <p className="text-sm text-muted-dark">
+                                        Activas via notificaciones push nativas de Android
+                                    </p>
+                                    <p className="text-[11px] text-emerald-400 mt-1">Gestionadas por los permisos del sistema Android</p>
+                                </div>
+                                <span className="material-icons-round text-emerald-400">notifications_active</span>
+                            </div>
+                            ) : (<>
                             <div className="flex items-center justify-between p-4 bg-background-dark rounded-lg border border-gray-800">
                                 <div>
                                     <h4 className="text-white font-medium">Notificaciones del sistema</h4>
