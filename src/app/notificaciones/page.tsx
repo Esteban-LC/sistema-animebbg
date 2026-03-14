@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { formatActivityDate } from '@/utils/date';
 
 interface Notificacion {
     id: number;
@@ -154,7 +155,7 @@ export default function NotificacionesPage() {
                                         </div>
                                         <p className="text-sm text-gray-300 mt-1">{item.mensaje}</p>
                                         <p className="text-xs text-muted-dark mt-2">
-                                            {new Date(item.creado_en).toLocaleString('es-ES')}
+                                            {formatActivityDate(item.creado_en)}
                                         </p>
                                     </div>
 

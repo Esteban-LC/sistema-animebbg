@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { formatActivityDate } from '@/utils/date';
 import { useUser } from '@/context/UserContext';
 
 interface RoleRecord {
@@ -895,7 +896,7 @@ export default function CompletadosPage() {
                                                     Capitulo {item.capitulo}
                                                 </div>
                                                 <p className="text-xs text-muted-dark mt-1">
-                                                    {item.completado_en ? new Date(item.completado_en).toLocaleString() : ''}
+                                                    {item.completado_en ? formatActivityDate(item.completado_en) : ''}
                                                 </p>
                                             </div>
                                         </div>

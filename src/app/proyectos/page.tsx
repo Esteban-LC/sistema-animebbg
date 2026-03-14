@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSidebar } from '@/context/SidebarContext';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { useSocket } from '@/context/SocketContext';
 
 interface Proyecto {
     id?: number;
@@ -321,6 +322,7 @@ function normalizeCreditosConfig(raw: unknown): CreditosConfig {
 
 export default function ProyectosPage() {
     const { toggle } = useSidebar();
+    const { socket } = useSocket();
     const [proyectos, setProyectos] = useState<Proyecto[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -361,11 +363,19 @@ export default function ProyectosPage() {
         };
         window.addEventListener('open-new-proyecto', handler);
         window.addEventListener('realtime:update', onRealtimeUpdate);
+        
+        if (!socket) return;
+        const handleContentChanged = () => {
+             fetchProyectos();
+        };
+        socket.on('content-changed', handleContentChanged);
+
         return () => {
             window.removeEventListener('open-new-proyecto', handler);
             window.removeEventListener('realtime:update', onRealtimeUpdate);
+            socket.off('content-changed', handleContentChanged);
         };
-    }, []);
+    }, [socket]);
 
     const fetchProyectos = async () => {
         try {
@@ -493,6 +503,7 @@ export default function ProyectosPage() {
             }
             setIsModalOpen(false);
             fetchProyectos();
+            socket?.emit('content-changed');
         } catch (error) {
             console.error(error);
             setSaveError(error instanceof Error ? error.message : 'No se pudo guardar el proyecto');
@@ -554,6 +565,7 @@ export default function ProyectosPage() {
             }));
             setRoleSyncInfo(`Sincronizado: ${Number(data?.capitulos_detectados || 0)} capitulos detectados en Drive.`);
             fetchProyectos();
+            socket?.emit('content-changed');
         } catch (error) {
             setRoleSyncError(error instanceof Error ? error.message : 'No se pudo sincronizar Drive');
         } finally {
@@ -582,6 +594,7 @@ export default function ProyectosPage() {
             const errors = Number(summary.errores || 0);
             setSyncAllInfo(`Sincronizacion global completada: ${ok}/${total} ok, ${omitted} omitidos, ${errors} con error.`);
             await fetchProyectos();
+            socket?.emit('content-changed');
         } catch (error) {
             setSyncAllError(error instanceof Error ? error.message : 'No se pudo sincronizar todo');
         } finally {
@@ -600,6 +613,7 @@ export default function ProyectosPage() {
             if (res.ok) {
                 setIsModalOpen(false);
                 fetchProyectos();
+                socket?.emit('content-changed');
             }
         } catch (error) {
             console.error(error);

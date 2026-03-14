@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSidebar } from '@/context/SidebarContext';
+import { useSocket } from '@/context/SocketContext';
+import { getTimeAgoLocal, formatActivityDate } from '@/utils/date';
 
 interface Stats {
   total_asignaciones: number;
@@ -32,6 +34,7 @@ interface Asignacion {
 
 export default function Dashboard() {
   const { toggle } = useSidebar();
+  const { socket } = useSocket();
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentAssignments, setRecentAssignments] = useState<Asignacion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,7 +62,16 @@ export default function Dashboard() {
       }
     }
     fetchData();
-  }, []);
+
+    if (!socket) return;
+    const handleContentChanged = () => {
+      fetchData();
+    };
+    socket.on('content-changed', handleContentChanged);
+    return () => {
+      socket.off('content-changed', handleContentChanged);
+    };
+  }, [socket]);
 
   const safeStats = stats && !(stats as any).error ? stats : {
     total_asignaciones: 0,

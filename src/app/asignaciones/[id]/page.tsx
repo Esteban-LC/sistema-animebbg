@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams, useParams } from 'next/navigation';
+import { formatActivityDate } from '@/utils/date';
 import Link from 'next/link';
 import { useToast } from '@/context/ToastContext';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useUser } from '@/context/UserContext';
+import { useSocket } from '@/context/SocketContext';
 
 interface Asignacion {
     id: number;
@@ -172,6 +174,7 @@ export default function DetalleAsignacion() {
     const id = String(params?.id || '');
     const { user } = useUser();
     const { showToast } = useToast();
+    const { socket } = useSocket();
 
     const [asignacion, setAsignacion] = useState<Asignacion | null>(null);
     const [loading, setLoading] = useState(true);
@@ -238,28 +241,42 @@ export default function DetalleAsignacion() {
             setLoading(false);
             return;
         }
-        fetch(`/api/asignaciones/${id}`)
-            .then(async (res) => {
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                    throw new Error(data?.error || `Error al cargar (${res.status})`);
-                }
-                return data;
-            })
-            .then(data => {
-                setLoadError('');
-                setAsignacion(data);
-                setDriveUrl(data.drive_url || '');
-                setDeliveryUrl(data.drive_url || '');
-                setManualCapitulo(data.capitulo ? String(data.capitulo) : '');
-                setManualDriveUrl(data.drive_url || '');
-            })
-            .catch((err) => {
-                setLoadError(err instanceof Error ? err.message : 'No se pudo cargar la asignacion');
-                console.error(err);
-            })
-            .finally(() => setLoading(false));
-    }, [id]);
+
+        const fetchDetails = () => {
+            fetch(`/api/asignaciones/${id}`)
+                .then(async (res) => {
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        throw new Error(data?.error || `Error al cargar (${res.status})`);
+                    }
+                    return data;
+                })
+                .then(data => {
+                    setLoadError('');
+                    setAsignacion(data);
+                    setDriveUrl(data.drive_url || '');
+                    setDeliveryUrl(data.drive_url || '');
+                    setManualCapitulo(data.capitulo ? String(data.capitulo) : '');
+                    setManualDriveUrl(data.drive_url || '');
+                })
+                .catch((err) => {
+                    setLoadError(err instanceof Error ? err.message : 'No se pudo cargar la asignacion');
+                    console.error(err);
+                })
+                .finally(() => setLoading(false));
+         };
+
+         fetchDetails();
+
+         if (!socket) return;
+         const handleContentChanged = () => {
+             fetchDetails();
+         };
+         socket.on('content-changed', handleContentChanged);
+         return () => {
+             socket.off('content-changed', handleContentChanged);
+         };
+    }, [id, socket]);
 
     useEffect(() => {
         if (!isTraductor || viewerDriveLinkType !== 'folder' || !viewerDriveUrl) {
@@ -409,6 +426,7 @@ export default function DetalleAsignacion() {
             setDeliveryUrl(data.drive_url);
             setManualDriveUrl(data.drive_url);
         }
+        socket?.emit('content-changed');
         return data;
     };
 
@@ -455,6 +473,7 @@ export default function DetalleAsignacion() {
             setAsignacion(prev => prev ? { ...prev, informe: nuevoInforme } : null);
             setNuevoInforme('');
             showToast('Informe enviado correctamente', 'success');
+            socket?.emit('content-changed');
         } catch {
             showToast('Error al enviar informe', 'error');
         }
@@ -465,6 +484,7 @@ export default function DetalleAsignacion() {
             const res = await fetch(`/api/asignaciones/${id}`, { method: 'DELETE' });
             if (res.ok) {
                 showToast('Asignacion eliminada', 'success');
+                socket?.emit('content-changed');
                 router.push('/asignaciones');
             } else {
                 showToast('Error al eliminar asignacion', 'error');
@@ -549,7 +569,7 @@ export default function DetalleAsignacion() {
                         <p className="text-sm text-gray-300"><strong>Rol:</strong> {asignacion.rol}</p>
                         <p className="text-sm text-gray-300"><strong>Estado:</strong> {asignacion.estado}</p>
                         <p className="text-sm text-gray-300"><strong>Capitulo:</strong> {asignacion.capitulo ?? '-'}</p>
-                        <p className="text-sm text-gray-300"><strong>Asignado:</strong> {new Date(asignacion.asignado_en).toLocaleString()}</p>
+                        <p className="text-sm text-gray-300"><strong>Asignado:</strong> {formatActivityDate(asignacion.asignado_en)}</p>
                         {!isStaffView ? (
                             <div className="space-y-2 pt-2">
                                 {['Pendiente', 'En Proceso', 'Completado'].map(status => (

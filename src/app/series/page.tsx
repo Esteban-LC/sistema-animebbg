@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useUser } from '@/context/UserContext';
+import { useSocket } from '@/context/SocketContext';
 
 interface Serie {
     id: number;
@@ -35,6 +36,7 @@ interface ProgresoData {
 
 export default function SeriesPage() {
     const { user } = useUser();
+    const { socket } = useSocket();
     const [items, setItems] = useState<Serie[]>([]);
     const [loading, setLoading] = useState(true);
     const [progressProject, setProgressProject] = useState<Serie | null>(null);
@@ -58,7 +60,17 @@ export default function SeriesPage() {
 
     useEffect(() => {
         fetchSeries();
-    }, []);
+
+        if (!socket) return;
+        const handleContentChanged = () => {
+             fetchSeries();
+        };
+        socket.on('content-changed', handleContentChanged);
+
+        return () => {
+            socket.off('content-changed', handleContentChanged);
+        };
+    }, [socket]);
 
     const calculateProgress = (curr: number, total: number | null) => {
         if (!total) return 100;

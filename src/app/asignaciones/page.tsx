@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useUser } from '@/context/UserContext';
+import { useSocket } from '@/context/SocketContext';
 
 interface Asignacion {
     id: number;
@@ -19,6 +20,7 @@ interface Asignacion {
 
 export default function AsignacionesPage() {
     const { user } = useUser();
+    const { socket } = useSocket();
     const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
     const [loading, setLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState('todos');
@@ -47,7 +49,12 @@ export default function AsignacionesPage() {
             }
         }
         fetchAsignaciones();
-    }, []);
+
+        if (!socket) return;
+        const handleContentChanged = () => { fetchAsignaciones(); };
+        socket.on('content-changed', handleContentChanged);
+        return () => { socket.off('content-changed', handleContentChanged); };
+    }, [socket]);
 
     const filtered = asignaciones.filter(a => {
         if (filterStatus !== 'todos' && a.estado !== filterStatus) return false;
