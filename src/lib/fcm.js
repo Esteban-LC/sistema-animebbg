@@ -29,6 +29,7 @@ function getAdmin() {
         adminApp = admin;
         return adminApp;
     } catch (e) {
+        console.error('[FCM] Firebase Admin SDK no se pudo inicializar:', e?.message || e);
         return null;
     }
 }
@@ -77,10 +78,17 @@ export async function getUserFcmTokens(db, userId) {
 
 export async function sendFcmToUser(db, userId, payload) {
     const admin = getAdmin();
-    if (!admin) return;
+    if (!admin) {
+        console.warn('[FCM] Firebase Admin no disponible - saltando FCM push para usuario', userId);
+        return;
+    }
 
     const tokens = await getUserFcmTokens(db, userId);
-    if (tokens.length === 0) return;
+    if (tokens.length === 0) {
+        console.warn('[FCM] No hay tokens FCM para usuario', userId);
+        return;
+    }
+    console.log(`[FCM] Enviando a usuario ${userId} con ${tokens.length} token(s)`);
 
     const message = {
         notification: {

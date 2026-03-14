@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { formatActivityDate } from '@/utils/date';
 import { useUser } from '@/context/UserContext';
+import { useSocket } from '@/context/SocketContext';
 
 interface RoleRecord {
     asignacion_id: number;
@@ -66,6 +67,7 @@ interface CompletadoItem {
 
 export default function CompletadosPage() {
     const { user, loading: userLoading } = useUser();
+    const { socket } = useSocket();
     const [items, setItems] = useState<CompletadoItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -118,6 +120,15 @@ export default function CompletadosPage() {
 
         fetchCompletados();
     }, [userLoading, isAdmin]);
+
+    useEffect(() => {
+        if (!socket || !isAdmin) return;
+        const handleContentChanged = () => {
+            fetchCompletados();
+        };
+        socket.on('content-changed', handleContentChanged);
+        return () => { socket.off('content-changed', handleContentChanged); };
+    }, [socket, isAdmin]);
 
     useEffect(() => {
         if (!isAdmin) return;
