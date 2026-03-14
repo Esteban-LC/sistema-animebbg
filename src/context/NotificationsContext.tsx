@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { usePathname } from 'next/navigation';
 import { useUser } from '@/context/UserContext';
 import { useToast } from '@/context/ToastContext';
+import { useSocket } from '@/context/SocketContext';
 
 interface NotificationsContextType {
     unread: number;
@@ -20,6 +21,7 @@ const NOTIFICATION_POLL_INTERVAL_MS = process.env.NODE_ENV === 'production' ? 12
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
     const { user } = useUser();
+    const { socket } = useSocket();
     const { showToast } = useToast();
     const pathname = usePathname();
 
@@ -162,7 +164,6 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             document.removeEventListener('visibilitychange', onVisibilityChange);
         };
     }, [isRealtimeConnected, refreshNotifications]);
-
     useEffect(() => {
         const onChanged = () => {
             refreshNotifications();
@@ -172,6 +173,17 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             window.removeEventListener('notifications:changed', onChanged);
         };
     }, [refreshNotifications]);
+
+    useEffect(() => {
+        if (!socket) return;
+        const handleContentChanged = () => {
+            refreshNotifications();
+        };
+        socket.on('content-changed', handleContentChanged);
+        return () => {
+            socket.off('content-changed', handleContentChanged);
+        };
+    }, [socket, refreshNotifications]);
 
     useEffect(() => {
         if (!user || !REALTIME_SSE_ENABLED) return;

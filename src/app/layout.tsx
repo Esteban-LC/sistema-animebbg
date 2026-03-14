@@ -40,24 +40,24 @@ export default function RootLayout({
       <body className="bg-background-dark text-text-dark font-sans h-screen flex overflow-hidden transition-colors duration-200">
         <SidebarProvider>
           <UserProvider>
-            <ToastProvider>
-              <NotificationsProvider>
-                <SocketProvider>
+            <SocketProvider>
+              <ToastProvider>
+                <NotificationsProvider>
                   <CapacitorPushInit />
-                {/* Provider Wrapper */}
-                <div className="flex h-full w-full">
-                  <Sidebar />
-                  <div className="flex-1 flex flex-col min-w-0">
-                    <MobileNavbar />
-                    <main className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
-                      {children}
-                    </main>
-                    <BottomNav />
+                  {/* Provider Wrapper */}
+                  <div className="flex h-full w-full">
+                    <Sidebar />
+                    <div className="flex-1 flex flex-col min-w-0">
+                      <MobileNavbar />
+                      <main className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
+                        {children}
+                      </main>
+                      <BottomNav />
+                    </div>
                   </div>
-                </div>
-                </SocketProvider>
-              </NotificationsProvider>
-            </ToastProvider>
+                </NotificationsProvider>
+              </ToastProvider>
+            </SocketProvider>
           </UserProvider>
         </SidebarProvider>
       </body>
