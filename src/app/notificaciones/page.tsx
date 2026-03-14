@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { formatActivityDate } from '@/utils/date';
+import { useSocket } from '@/context/SocketContext';
 
 interface Notificacion {
     id: number;
@@ -15,6 +16,7 @@ interface Notificacion {
 const NOTIFICATIONS_PAGE_POLL_MS = process.env.NODE_ENV === 'production' ? 30000 : 8000;
 
 export default function NotificacionesPage() {
+    const { socket } = useSocket();
     const [items, setItems] = useState<Notificacion[]>([]);
     const [unread, setUnread] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -68,6 +70,21 @@ export default function NotificacionesPage() {
             window.removeEventListener('realtime:update', onRealtimeUpdate as EventListener);
         };
     }, [hasRealtimeActivity]);
+
+    // WebSocket: refresca cuando hay cambio de contenido en el sistema
+    useEffect(() => {
+        if (!socket) return;
+        const handleSocketChange = () => fetchNotifications(true);
+        socket.on('content-changed', handleSocketChange);
+        return () => { socket.off('content-changed', handleSocketChange); };
+    }, [socket]);
+
+    // Notificación push recibida (web push o Capacitor): actualiza lista al instante
+    useEffect(() => {
+        const handlePushReceived = () => fetchNotifications(true);
+        window.addEventListener('notifications:changed', handlePushReceived);
+        return () => { window.removeEventListener('notifications:changed', handlePushReceived); };
+    }, []);
 
     const markOneRead = async (id: number) => {
         setProcessingId(id);
