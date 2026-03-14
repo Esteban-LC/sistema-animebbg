@@ -51,3 +51,6 @@ _legacy/node_modules/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Capacitor native Android project (build locally with: npx cap add android)
+/android/
