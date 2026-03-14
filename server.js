@@ -29,18 +29,29 @@ app.prepare().then(() => {
     },
   });
 
-  io.on('connection', (socket) => {
-    // console.log(`Socket connected: ${socket.id}`);
-
-    socket.on('content-changed', (data) => {
-      // Re-broadcast early to all *other* connected clients
-      socket.broadcast.emit('content-changed', data || {});
+    io.on('connection', (socket) => {
+      // console.log(`Socket connected: ${socket.id}`);
+  
+      socket.on('content-changed', (data) => {
+        // Re-broadcast early to all *other* connected clients
+        socket.broadcast.emit('content-changed', data || {});
+      });
+  
+      socket.on('disconnect', () => {
+        // console.log(`Socket disconnected: ${socket.id}`);
+      });
     });
 
-    socket.on('disconnect', () => {
-      // console.log(`Socket disconnected: ${socket.id}`);
-    });
-  });
+    // Bridge internal Events to Socket.io
+    const emitter = global.__animebbgRealtimeEmitter;
+    if (emitter) {
+      emitter.on('notification', (payload) => {
+        io.emit('notification', payload);
+      });
+      emitter.on('content-changed', (payload) => {
+        io.emit('content-changed', payload);
+      });
+    }
 
   httpServer
     .once('error', (err) => {
