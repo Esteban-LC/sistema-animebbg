@@ -28,7 +28,7 @@ export default function MobileNavbar() {
     const title = getTitle();
 
     return (
-        <header className="md:hidden h-14 bg-background-dark/95 backdrop-blur-lg border-b border-gray-800/40 flex items-center justify-center px-4 z-20 shrink-0 relative">
+        <header className="md:hidden min-h-14 bg-background-dark/95 backdrop-blur-lg border-b border-gray-800/40 flex items-end justify-center px-4 pb-2 z-20 shrink-0 relative" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}>
             {/* Logo o título centrado */}
             {pathname === '/' ? (
                 <div className="flex items-center gap-2">

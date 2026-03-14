@@ -6,9 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:android": "next build && npx cap sync android",
+    "open:android": "npx cap open android",
+    "sync": "npx cap sync"
   },
   "dependencies": {
+    "@capacitor/android": "^8.2.0",
+    "@capacitor/cli": "^8.2.0",
+    "@capacitor/core": "^8.2.0",
     "@libsql/client": "^0.17.0",
     "better-sqlite3": "^12.6.2",
     "dotenv": "^17.3.1",

@@ -13,6 +13,9 @@ export const metadata = {
 
 export const viewport = {
   themeColor: '#0A0E17',
+  viewportFit: 'cover',
+  width: 'device-width',
+  initialScale: 1,
 };
 
 import { ToastProvider } from '@/context/ToastContext';
