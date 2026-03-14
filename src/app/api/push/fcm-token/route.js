@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 async function getSessionUserId(db) {
     const token = (await cookies()).get('auth_token')?.value;
     if (!token) return null;
-    const session = db.prepare(
+    const session = await db.prepare(
         `SELECT usuario_id FROM sessions WHERE token = ? AND expires_at > datetime('now')`
     ).get(token);
     return session?.usuario_id ? Number(session.usuario_id) : null;
@@ -24,6 +24,7 @@ export async function POST(request) {
         if (!token) return NextResponse.json({ error: 'token requerido' }, { status: 400 });
 
         await saveFcmToken(db, userId, token);
+        console.log(`[FCM] Token guardado para usuario ${userId}`);
         return NextResponse.json({ ok: true });
     } catch (error) {
         return NextResponse.json({ error: error?.message || 'Error' }, { status: 500 });
