@@ -13,12 +13,16 @@ export default function ConfiguracionPage() {
     const [pushEnabled, setPushEnabled] = useState(false);
     const [pushSupported, setPushSupported] = useState(false);
     const [pushConfigured, setPushConfigured] = useState(false);
+    const [isCapacitor, setIsCapacitor] = useState(false);
     const [pushPublicKey, setPushPublicKey] = useState('');
     const [pushLoading, setPushLoading] = useState(false);
     const [pushTesting, setPushTesting] = useState(false);
 
     useEffect(() => {
-        const supported = typeof window !== 'undefined'
+        const isCapacitor = typeof window !== 'undefined' && !!(window as any).Capacitor;
+        setIsCapacitor(isCapacitor);
+        const supported = !isCapacitor
+            && typeof window !== 'undefined'
             && 'serviceWorker' in navigator
             && 'PushManager' in window
             && 'Notification' in window;
@@ -238,6 +242,7 @@ export default function ConfiguracionPage() {
                                 </label>
                             </div>
 
+                            {!isCapacitor && (<>
                             <div className="flex items-center justify-between p-4 bg-background-dark rounded-lg border border-gray-800">
                                 <div>
                                     <h4 className="text-white font-medium">Notificaciones del sistema</h4>
@@ -275,6 +280,7 @@ export default function ConfiguracionPage() {
                                     Envia una notificacion real para comprobar que aparece en el panel nativo del celular.
                                 </p>
                             </div>
+                            </>)}
                         </div>
                     </div>
 
