@@ -55,7 +55,19 @@ export default function CapacitorPushInit() {
         };
 
         init();
-        return () => { cleanup?.(); };
+
+        // Refresh notifications when app comes back to foreground
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                window.dispatchEvent(new CustomEvent('notifications:changed'));
+            }
+        };
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
+        return () => {
+            cleanup?.();
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
     }, [user]);
 
     return null;
