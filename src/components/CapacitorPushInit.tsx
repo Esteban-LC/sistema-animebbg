@@ -34,6 +34,21 @@ export default function CapacitorPushInit() {
                 }
 
                 await PushNotifications.register();
+
+                // Crear canal de notificación para Android 8+
+                if ((window as any).Capacitor.getPlatform() === 'android') {
+                    await PushNotifications.createChannel({
+                        id: 'default',
+                        name: 'Default',
+                        description: 'Canal de notificaciones predeterminado',
+                        importance: 5,
+                        visibility: 1,
+                        sound: 'default',
+                        vibration: true,
+                    });
+                    console.log('[Push] Canal de notificación "default" creado.');
+                }
+                
                 console.log('[Push] Registro llamado, esperando token...');
 
                 const tokenHandler = await PushNotifications.addListener('registration', async (token) => {
