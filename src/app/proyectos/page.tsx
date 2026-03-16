@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSidebar } from '@/context/SidebarContext';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useSocket } from '@/context/SocketContext';
+import { useUser } from '@/context/UserContext';
 
 interface Proyecto {
     id?: number;
@@ -320,9 +321,39 @@ function normalizeCreditosConfig(raw: unknown): CreditosConfig {
     };
 }
 
+function hasProjectFuentesConfigured(config: FuentesConfig | null | undefined) {
+    if (!config) return false;
+    if (String(config.fuentes_drive_url || '').trim()) return true;
+    if (String(config.simbolos_url || '').trim()) return true;
+
+    return Array.isArray(config.items) && config.items.some((item) =>
+        Boolean(String(item?.font_file_id || '').trim() || String(item?.font_file_name || '').trim())
+    );
+}
+
+function hasProjectCreditosConfigured(config: CreditosConfig | null | undefined) {
+    if (!config) return false;
+
+    const imagen = config.imagen || {};
+    const defaults = config.defaults || {};
+
+    return Boolean(
+        String(imagen.plantilla_url || '').trim()
+        || String(imagen.overlay_url || '').trim()
+        || String(imagen.font_file_id || '').trim()
+        || String(defaults.traductor_tag || '').trim()
+        || String(defaults.traductor_alias || '').trim()
+        || String(defaults.typer_tag || '').trim()
+        || String(defaults.typer_alias || '').trim()
+        || String(defaults.cleaner_tag || '').trim()
+        || String(defaults.cleaner_alias || '').trim()
+    );
+}
+
 export default function ProyectosPage() {
     const { toggle } = useSidebar();
     const { socket } = useSocket();
+    const { user } = useUser();
     const [proyectos, setProyectos] = useState<Proyecto[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -348,6 +379,16 @@ export default function ProyectosPage() {
     const [savingFuentes, setSavingFuentes] = useState(false);
     const [saveFuentesInfo, setSaveFuentesInfo] = useState('');
     const [saveFuentesError, setSaveFuentesError] = useState('');
+    const roles = user?.roles || [];
+    const canViewProjectConfigIndicators = Boolean(
+        user?.isAdmin
+        || roles.includes('Administrador')
+        || roles.includes('Lider de Grupo')
+    );
+    const [modalFocusSection, setModalFocusSection] = useState<'fuentes' | 'creditos' | null>(null);
+    const [isFuentesSectionOpen, setIsFuentesSectionOpen] = useState(false);
+    const fuentesSectionRef = useRef<HTMLDivElement | null>(null);
+    const creditosSectionRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         fetchProyectos();
@@ -414,7 +455,7 @@ export default function ProyectosPage() {
         }
     };
 
-    const handleOpenModal = (proyecto?: Proyecto) => {
+    const handleOpenModal = (proyecto?: Proyecto, focusSection: 'fuentes' | 'creditos' | null = null) => {
         setSaveError('');
         setRoleSyncError('');
         setRoleSyncInfo('');
@@ -423,6 +464,8 @@ export default function ProyectosPage() {
         setDriveFontsError('');
         setSaveFuentesInfo('');
         setSaveFuentesError('');
+        setModalFocusSection(focusSection);
+        setIsFuentesSectionOpen(focusSection === 'fuentes');
         if (proyecto) {
             const initialProject = normalizeLegacySecondaryRawProject({
                 ...proyecto,
@@ -932,6 +975,22 @@ export default function ProyectosPage() {
         };
     }, [isModalOpen, fuentesPreviewSignature]);
 
+    useEffect(() => {
+        if (!isModalOpen || !modalFocusSection) return;
+
+        const section = modalFocusSection === 'fuentes'
+            ? fuentesSectionRef.current
+            : creditosSectionRef.current;
+
+        if (!section) return;
+
+        const timerId = window.setTimeout(() => {
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+
+        return () => window.clearTimeout(timerId);
+    }, [isModalOpen, modalFocusSection]);
+
     return (
         <div className="flex-1 flex flex-col h-full bg-background-dark overflow-hidden">
             {/* Header - Hidden on mobile because of global navbar, standard on desktop */}
@@ -1049,6 +1108,47 @@ export default function ProyectosPage() {
                                                     <span className="text-xl font-display font-bold text-gray-400 leading-none">{getRawPublishedMax(p) || '?'}</span>
                                                 </div>
                                             </div>
+
+                                            {canViewProjectConfigIndicators && (
+                                                <div className="grid grid-cols-1 gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleOpenModal(p, 'fuentes')}
+                                                        className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors hover:border-primary/60 ${hasProjectFuentesConfigured(p.fuentes_config)
+                                                        ? 'border-emerald-500/30 bg-emerald-500/10'
+                                                        : 'border-red-500/30 bg-red-500/10'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span className={`material-icons-round text-base ${hasProjectFuentesConfigured(p.fuentes_config) ? 'text-emerald-300' : 'text-red-300'}`}>
+                                                                {hasProjectFuentesConfigured(p.fuentes_config) ? 'check_circle' : 'cancel'}
+                                                            </span>
+                                                            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-200">Fuentes</span>
+                                                        </div>
+                                                        <span className={`text-[10px] font-bold uppercase tracking-wider ${hasProjectFuentesConfigured(p.fuentes_config) ? 'text-emerald-200' : 'text-red-200'}`}>
+                                                            {hasProjectFuentesConfigured(p.fuentes_config) ? 'Asignadas' : 'Pendiente'}
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleOpenModal(p, 'creditos')}
+                                                        className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors hover:border-primary/60 ${hasProjectCreditosConfigured(p.creditos_config)
+                                                        ? 'border-emerald-500/30 bg-emerald-500/10'
+                                                        : 'border-red-500/30 bg-red-500/10'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span className={`material-icons-round text-base ${hasProjectCreditosConfigured(p.creditos_config) ? 'text-emerald-300' : 'text-red-300'}`}>
+                                                                {hasProjectCreditosConfigured(p.creditos_config) ? 'check_circle' : 'cancel'}
+                                                            </span>
+                                                            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-200">Plantilla creditos</span>
+                                                        </div>
+                                                        <span className={`text-[10px] font-bold uppercase tracking-wider ${hasProjectCreditosConfigured(p.creditos_config) ? 'text-emerald-200' : 'text-red-200'}`}>
+                                                            {hasProjectCreditosConfigured(p.creditos_config) ? 'Asignada' : 'Pendiente'}
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            )}
 
                                             {/* Progress Bar with Glow */}
                                             <div className="relative">
@@ -1341,9 +1441,19 @@ export default function ProyectosPage() {
                                     </div>
                                     <p className="text-[11px] text-muted-dark mt-1">Selecciona o agrega capitulos concretos para asignaciones.</p>
                                 </div>
-                                <div className="md:col-span-2">
-                                    <details className="group rounded-xl border border-gray-800 bg-surface-darker/40">
-                                        <summary className="list-none cursor-pointer px-4 py-3 flex items-center justify-between">
+                                <div
+                                    ref={fuentesSectionRef}
+                                    className={`md:col-span-2 scroll-mt-6 rounded-xl ${modalFocusSection === 'fuentes' ? 'ring-1 ring-primary/40' : ''}`}
+                                >
+                                    <details open={isFuentesSectionOpen} className="group rounded-xl border border-gray-800 bg-surface-darker/40">
+                                        <summary
+                                            className="list-none cursor-pointer px-4 py-3 flex items-center justify-between"
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                setIsFuentesSectionOpen((prev) => !prev);
+                                                setModalFocusSection('fuentes');
+                                            }}
+                                        >
                                             <div>
                                                 <p className="text-xs font-bold text-muted-dark uppercase tracking-wider">Fuentes por Proyecto</p>
                                                 <p className="text-[11px] text-muted-dark mt-1">Configura enlaces y ejemplos visuales para Typer.</p>
@@ -1495,7 +1605,10 @@ export default function ProyectosPage() {
                                         </div>
                                     </details>
                                 </div>
-                                <div className="md:col-span-2">
+                                <div
+                                    ref={creditosSectionRef}
+                                    className={`md:col-span-2 scroll-mt-6 rounded-xl ${modalFocusSection === 'creditos' ? 'ring-1 ring-primary/40' : ''}`}
+                                >
                                     <div className="rounded-xl border border-gray-700 bg-background-dark/60 p-4 space-y-3">
                                         <h4 className="text-sm font-bold text-white uppercase tracking-wider">Plantilla Creditos (Solo Imagen)</h4>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
