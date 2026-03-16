@@ -108,6 +108,12 @@ function normalizeStatus(value: string | undefined) {
     return String(value || '').trim().toLowerCase();
 }
 
+function sortProjectsAlphabetically(projects: Proyecto[]) {
+    return [...projects].sort((a, b) =>
+        String(a?.titulo || '').localeCompare(String(b?.titulo || ''), 'es', { sensitivity: 'base' })
+    );
+}
+
 function NuevaAsignacionContent() {
     const { user } = useUser();
     const router = useRouter();
@@ -173,7 +179,7 @@ function NuevaAsignacionContent() {
             .then(data => {
                 const list = Array.isArray(data) ? data : [];
                 const visibles = list.filter((p) => !['pausado', 'cancelado'].includes(normalizeStatus(p?.estado)));
-                setProyectos(visibles);
+                setProyectos(sortProjectsAlphabetically(visibles));
             });
     }, []);
 

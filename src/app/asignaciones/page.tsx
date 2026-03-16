@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useUser } from '@/context/UserContext';
 import { useSocket } from '@/context/SocketContext';
@@ -18,15 +18,46 @@ interface Asignacion {
     capitulo?: number;
 }
 
+interface ProyectoOption {
+    id: number;
+    titulo: string;
+    estado?: string;
+}
+
+function normalizeProjectStatus(value: string | undefined) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function sortProjectTitlesAlphabetically(projects: ProyectoOption[]) {
+    return [...projects].sort((a, b) =>
+        String(a?.titulo || '').localeCompare(String(b?.titulo || ''), 'es', { sensitivity: 'base' })
+    );
+}
+
 export default function AsignacionesPage() {
     const { user } = useUser();
     const { socket } = useSocket();
     const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
+    const [proyectos, setProyectos] = useState<ProyectoOption[]>([]);
     const [loading, setLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState('todos');
     const [filterRole, setFilterRole] = useState('todos');
+    const [filterProject, setFilterProject] = useState('todos');
 
     useEffect(() => {
+        async function fetchProyectos() {
+            try {
+                const res = await fetch('/api/proyectos');
+                const data = await res.json();
+                const list = Array.isArray(data) ? data : [];
+                const visibles = list.filter((project) => !['pausado', 'cancelado', 'inhabilitado', 'inactivo'].includes(normalizeProjectStatus(project?.estado)));
+                setProyectos(sortProjectTitlesAlphabetically(visibles));
+            } catch (err) {
+                console.error(err);
+                setProyectos([]);
+            }
+        }
+
         async function fetchAsignaciones() {
             try {
                 const res = await fetch('/api/asignaciones');
@@ -48,6 +79,7 @@ export default function AsignacionesPage() {
                 setLoading(false);
             }
         }
+        fetchProyectos();
         fetchAsignaciones();
 
         if (!socket) return;
@@ -56,9 +88,21 @@ export default function AsignacionesPage() {
         return () => { socket.off('content-changed', handleContentChanged); };
     }, [socket]);
 
+    const projectOptions = useMemo(() => {
+        const map = new Map<string, string>();
+        proyectos.forEach((item) => {
+            const projectTitle = String(item.titulo || '').trim();
+            if (!projectTitle) return;
+            map.set(projectTitle, projectTitle);
+        });
+
+        return [...map.values()];
+    }, [proyectos]);
+
     const filtered = asignaciones.filter(a => {
         if (filterStatus !== 'todos' && a.estado !== filterStatus) return false;
         if (filterRole !== 'todos' && a.rol !== filterRole) return false;
+        if (filterProject !== 'todos' && String(a.proyecto_titulo || '').trim() !== filterProject) return false;
         return true;
     });
 
@@ -101,7 +145,7 @@ export default function AsignacionesPage() {
                     <h1 className="font-display font-bold text-2xl lg:text-3xl uppercase tracking-wider text-white">
                         <span className="text-primary">Asignaciones</span>
                     </h1>
-                    <div className="hidden md:flex items-center bg-surface-darker rounded-lg px-3 py-2 w-64 border border-gray-700 focus-within:border-primary transition-colors">
+                    <div className="hidden">
                         <span className="material-icons-round text-gray-400 text-xl mr-2">search</span>
                         <input
                             className="bg-transparent border-none text-sm w-full focus:outline-none p-0 text-white placeholder-gray-400"
@@ -208,6 +252,16 @@ export default function AsignacionesPage() {
                             <option value="Traductor">Traductor</option>
                             <option value="Redrawer">Redrawer</option>
                             <option value="Typer">Typer</option>
+                        </select>
+                        <select
+                            value={filterProject}
+                            onChange={e => setFilterProject(e.target.value)}
+                            className="bg-background-dark text-text-light text-sm rounded-lg border border-gray-700 px-3 py-2 focus:outline-none focus:border-primary min-w-[220px]"
+                        >
+                            <option value="todos">Todos los Proyectos</option>
+                            {projectOptions.map((projectTitle) => (
+                                <option key={projectTitle} value={projectTitle}>{projectTitle}</option>
+                            ))}
                         </select>
                         <div className="flex gap-2 flex-wrap">
                             {['Traductor', 'Typer', 'Redrawer'].map((roleName) => (
@@ -354,7 +408,7 @@ export default function AsignacionesPage() {
                                 <h3 className="text-xl font-bold text-white mb-2">No se encontraron asignaciones</h3>
                                 <p className="text-muted-dark mb-6">No hay tareas que coincidan con los filtros seleccionados.</p>
                                 <button
-                                    onClick={() => { setFilterStatus('todos'); setFilterRole('todos'); }}
+                                    onClick={() => { setFilterStatus('todos'); setFilterRole('todos'); setFilterProject('todos'); }}
                                     className="text-primary hover:text-white font-medium hover:underline transition-colors"
                                 >
                                     Limpiar filtros

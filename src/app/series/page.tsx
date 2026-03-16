@@ -169,33 +169,35 @@ export default function SeriesPage() {
                                 <span className="material-icons-round">close</span>
                             </button>
                         </div>
-                        <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
-                            <p className="text-white font-bold">{progressProject.titulo}</p>
+                        <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
+                            <div>
+                                <p className="text-white font-bold text-lg">{progressProject.titulo}</p>
+                                <p className="text-xs text-muted-dark">Avance real por Traduccion, Typeo y Redraw para asignar parejo.</p>
+                            </div>
                             {progressLoading ? (
-                                <div className="h-20 rounded-xl bg-gray-800/40 animate-pulse" />
+                                <div className="space-y-3">
+                                    <div className="h-20 rounded-xl bg-gray-800/40 animate-pulse"></div>
+                                    <div className="h-20 rounded-xl bg-gray-800/40 animate-pulse"></div>
+                                </div>
                             ) : progressData ? (
                                 <>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                         <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
-                                            <p className="text-[10px] uppercase text-muted-dark font-bold">Capitulos</p>
+                                            <p className="text-[10px] uppercase text-muted-dark font-bold">Capitulos Base</p>
                                             <p className="text-2xl font-display font-bold text-white">{progressData.summary.total_capitulos}</p>
                                         </div>
                                         <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
-                                            <p className="text-[10px] uppercase text-muted-dark font-bold">Traduccion</p>
+                                            <p className="text-[10px] uppercase text-muted-dark font-bold">Traducidos</p>
                                             <p className="text-2xl font-display font-bold text-primary">{progressData.summary.traductor_completados}</p>
                                         </div>
                                         <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
-                                            <p className="text-[10px] uppercase text-muted-dark font-bold">Typeo</p>
+                                            <p className="text-[10px] uppercase text-muted-dark font-bold">Typeados</p>
                                             <p className="text-2xl font-display font-bold text-blue-400">{progressData.summary.typer_completados}</p>
                                         </div>
                                         <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
                                             <p className="text-[10px] uppercase text-muted-dark font-bold">Redraw</p>
                                             <p className="text-2xl font-display font-bold text-emerald-400">{progressData.summary.redrawer_completados}</p>
                                         </div>
-                                    </div>
-                                    <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
-                                        <p className="text-[10px] uppercase text-muted-dark font-bold">Realizados (3 roles)</p>
-                                        <p className="text-2xl font-display font-bold text-white">{progressData.summary.completos_todos_los_roles || 0}</p>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                         <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
@@ -222,37 +224,23 @@ export default function SeriesPage() {
                                             {progressData.chapters.map((c) => (
                                                 <div key={c.label} className="grid grid-cols-4 text-sm text-gray-200">
                                                     <div className="p-2 font-bold">{c.label}</div>
-                                                    <div className="p-2 text-center">{c.traductor ? 'OK' : '-'}</div>
-                                                    <div className="p-2 text-center">{c.typer ? 'OK' : '-'}</div>
-                                                    <div className="p-2 text-center">{c.redrawer ? 'OK' : '-'}</div>
+                                                    <div className="p-2 text-center">
+                                                        <span className={`material-icons-round text-base ${c.traductor ? 'text-emerald-400' : 'text-gray-500'}`}>
+                                                            {c.traductor ? 'check_box' : 'remove'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="p-2 text-center">
+                                                        <span className={`material-icons-round text-base ${c.typer ? 'text-emerald-400' : 'text-gray-500'}`}>
+                                                            {c.typer ? 'check_box' : 'remove'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="p-2 text-center">
+                                                        <span className={`material-icons-round text-base ${c.redrawer ? 'text-emerald-400' : 'text-gray-500'}`}>
+                                                            {c.redrawer ? 'check_box' : 'remove'}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             ))}
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
-                                            <p className="text-xs font-bold text-white mb-2">Desglose Realizados Traduccion</p>
-                                            <p className="text-xs text-muted-dark break-words">
-                                                {progressData.chapters.filter((c) => c.traductor).map((c) => c.label).join(', ') || 'Ninguno'}
-                                            </p>
-                                        </div>
-                                        <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
-                                            <p className="text-xs font-bold text-white mb-2">Desglose Realizados Typeo</p>
-                                            <p className="text-xs text-muted-dark break-words">
-                                                {progressData.chapters.filter((c) => c.typer).map((c) => c.label).join(', ') || 'Ninguno'}
-                                            </p>
-                                        </div>
-                                        <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
-                                            <p className="text-xs font-bold text-white mb-2">Desglose Realizados Redraw</p>
-                                            <p className="text-xs text-muted-dark break-words">
-                                                {progressData.chapters.filter((c) => c.redrawer).map((c) => c.label).join(', ') || 'Ninguno'}
-                                            </p>
-                                        </div>
-                                        <div className="p-3 rounded-xl border border-gray-800 bg-background-dark">
-                                            <p className="text-xs font-bold text-white mb-2">Desglose Completos (3 roles)</p>
-                                            <p className="text-xs text-muted-dark break-words">
-                                                {progressData.chapters.filter((c) => c.traductor && c.typer && c.redrawer).map((c) => c.label).join(', ') || 'Ninguno'}
-                                            </p>
                                         </div>
                                     </div>
                                 </>

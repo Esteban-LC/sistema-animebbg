@@ -35,6 +35,18 @@ function normalizeProjectStatus(value) {
     return String(value || '').trim().toLowerCase();
 }
 
+function getProjectStatusOrderCaseSql(alias = 'p') {
+    return `
+        CASE
+            WHEN LOWER(TRIM(COALESCE(${alias}.estado, 'Activo'))) = 'activo' THEN 1
+            WHEN LOWER(TRIM(COALESCE(${alias}.estado, 'Activo'))) = 'pausado' THEN 2
+            WHEN LOWER(TRIM(COALESCE(${alias}.estado, 'Activo'))) = 'finalizado' THEN 3
+            WHEN LOWER(TRIM(COALESCE(${alias}.estado, 'Activo'))) = 'cancelado' THEN 4
+            ELSE 5
+        END
+    `;
+}
+
 function extractFolderId(rawValue) {
     const value = String(rawValue || '').trim();
     if (!value) return '';
@@ -376,7 +388,13 @@ export async function GET() {
             return NextResponse.json([]);
         }
 
-        query += ' ORDER BY p.ultima_actualizacion DESC';
+        query += `
+            ORDER BY
+                ${getProjectStatusOrderCaseSql('p')} ASC,
+                LOWER(TRIM(COALESCE(p.titulo, ''))) ASC,
+                p.titulo ASC,
+                p.id ASC
+        `;
         const proyectos = await db.prepare(query).all(...params);
         const hydrated = proyectos.map((proyecto) => {
             let catalogo = [];

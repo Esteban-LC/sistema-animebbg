@@ -996,15 +996,9 @@ export default function ProyectosPage() {
             {/* Header - Hidden on mobile because of global navbar, standard on desktop */}
             <header className="h-20 bg-surface-dark border-b border-gray-800 hidden md:flex items-center justify-between px-6 lg:px-8 z-10 sticky top-0 shrink-0">
                 <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-6">
-                        <h1 className="font-display font-bold text-2xl lg:text-3xl uppercase tracking-wider text-white">
-                            <span className="text-primary">Proyectos</span>
-                        </h1>
-                        <div className="hidden md:flex items-center bg-surface-darker rounded-lg px-3 py-2 w-64 border border-gray-700 focus-within:border-primary transition-colors">
-                            <span className="material-icons-round text-gray-400 text-xl mr-2">search</span>
-                            <input className="bg-transparent border-none text-sm w-full focus:outline-none p-0 text-white placeholder-gray-400" placeholder="Buscar proyecto..." type="text" />
-                        </div>
-                    </div>
+                    <h1 className="font-display font-bold text-2xl lg:text-3xl uppercase tracking-wider text-white">
+                        <span className="text-primary">Proyectos</span>
+                    </h1>
                 </div>
                 <div className="flex items-center gap-2">
                     <button

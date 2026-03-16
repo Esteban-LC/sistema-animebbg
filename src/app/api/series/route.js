@@ -5,6 +5,18 @@ import { cookies } from 'next/headers';
 export const dynamic = 'force-dynamic';
 const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
 
+function getProjectStatusOrderCaseSql(alias = 'p') {
+    return `
+        CASE
+            WHEN LOWER(TRIM(COALESCE(${alias}.estado, 'Activo'))) = 'activo' THEN 1
+            WHEN LOWER(TRIM(COALESCE(${alias}.estado, 'Activo'))) = 'pausado' THEN 2
+            WHEN LOWER(TRIM(COALESCE(${alias}.estado, 'Activo'))) = 'finalizado' THEN 3
+            WHEN LOWER(TRIM(COALESCE(${alias}.estado, 'Activo'))) = 'cancelado' THEN 4
+            ELSE 5
+        END
+    `;
+}
+
 async function getSessionContext(db) {
     const cookieStore = await cookies();
     const token = cookieStore.get('auth_token')?.value;
@@ -73,7 +85,13 @@ export async function GET() {
             query += ` WHERE LOWER(TRIM(COALESCE(p.estado, 'Activo'))) != 'cancelado'`;
         }
 
-        query += ` ORDER BY p.ultima_actualizacion DESC`;
+        query += `
+            ORDER BY
+                ${getProjectStatusOrderCaseSql('p')} ASC,
+                LOWER(TRIM(COALESCE(p.titulo, ''))) ASC,
+                p.titulo ASC,
+                p.id ASC
+        `;
         const rows = await db.prepare(query).all(...params);
         return NextResponse.json(rows);
     } catch (error) {
