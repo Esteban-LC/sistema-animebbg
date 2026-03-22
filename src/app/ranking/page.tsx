@@ -172,7 +172,7 @@ export default function RankingPage() {
         setLoading(true);
         setError('');
         try {
-            const query = previewRange ? `?start=${previewRange.start}&end=${previewRange.end}` : '';
+            const query = previewRange ? `?start=${encodeURIComponent(previewRange.start)}&end=${encodeURIComponent(previewRange.end)}` : '';
             const res = await fetch(`/api/ranking${query}`);
             const data: RankingResponse | { error?: string } = await res.json();
 

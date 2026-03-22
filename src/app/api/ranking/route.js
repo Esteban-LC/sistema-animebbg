@@ -34,14 +34,15 @@ function getCurrentDatetime() {
 }
 
 function addDaysToISO(isoDate, days) {
-    const date = new Date(`${isoDate}T00:00:00.000Z`);
+    const dateOnly = String(isoDate).slice(0, 10);
+    const date = new Date(`${dateOnly}T00:00:00.000Z`);
     date.setUTCDate(date.getUTCDate() + days);
     return date.toISOString().slice(0, 10);
 }
 
 function getInclusiveDays(start, end) {
-    const startDate = new Date(`${start}T00:00:00.000Z`);
-    const endDate = new Date(`${end}T00:00:00.000Z`);
+    const startDate = new Date(`${String(start).slice(0, 10)}T00:00:00.000Z`);
+    const endDate = new Date(`${String(end).slice(0, 10)}T00:00:00.000Z`);
     const diff = Math.round((endDate.getTime() - startDate.getTime()) / 86400000);
     return diff + 1;
 }
@@ -240,9 +241,10 @@ export async function GET(request) {
 
         if (isAdmin && queryStart && queryEnd) {
             if (!isISODate(queryStart) || !isISODate(queryEnd)) {
-                return NextResponse.json({ error: 'Fechas invalidas. Usa formato YYYY-MM-DD.' }, { status: 400 });
+                return NextResponse.json({ error: 'Fechas invalidas. Usa formato YYYY-MM-DD o YYYY-MM-DD HH:MM.' }, { status: 400 });
             }
-            if (queryStart > queryEnd) {
+            const normQ = (v) => String(v).replace('T', ' ');
+            if (normQ(queryStart) > normQ(queryEnd)) {
                 return NextResponse.json({ error: 'La fecha de inicio no puede ser mayor que la fecha de fin.' }, { status: 400 });
             }
             start = queryStart;
