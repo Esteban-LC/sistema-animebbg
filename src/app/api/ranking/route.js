@@ -435,6 +435,21 @@ export async function PATCH(request) {
         const start = body?.start;
         const end = body?.end;
 
+        if (action === 'delete_season') {
+            const seasonKey = String(body?.season_key || '');
+            if (!seasonKey) {
+                return NextResponse.json({ error: 'season_key requerido.' }, { status: 400 });
+            }
+            try {
+                await db.prepare(`DELETE FROM ranking_final_results WHERE season_key = ?`).run(seasonKey);
+                await db.prepare(`DELETE FROM ranking_live_positions WHERE season_key = ?`).run(seasonKey);
+                await db.prepare(`DELETE FROM ranking_final_notified WHERE season_key = ?`).run(seasonKey);
+            } catch {
+                // ignore if tables don't exist
+            }
+            return NextResponse.json({ ok: true });
+        }
+
         if (action === 'set_visibility') {
             const hidden = Number(body?.hidden ? 1 : 0);
             await ensureRankingConfigTable(db);

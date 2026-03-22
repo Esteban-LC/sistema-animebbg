@@ -351,6 +351,26 @@ export default function RankingPage() {
         }
     };
 
+    const handleDeleteSeason = async (seasonKey: string) => {
+        if (!confirm('¿Eliminar este registro de historial? Esta acción no se puede deshacer.')) return;
+        try {
+            const res = await fetch('/api/ranking', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete_season', season_key: seasonKey }),
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                showToast(data?.error || 'No se pudo eliminar la temporada.', 'error');
+                return;
+            }
+            setHistorySeasons((prev) => prev.filter((s) => s.season_key !== seasonKey));
+            showToast('Temporada eliminada del historial.', 'success');
+        } catch {
+            showToast('Error de red al eliminar la temporada.', 'error');
+        }
+    };
+
     const handleToggleHistory = () => {
         const next = !historyOpen;
         setHistoryOpen(next);
@@ -796,7 +816,6 @@ export default function RankingPage() {
                             )}
                         </div>
                     </section>
-                </div>
 
                     {/* History collapse */}
                     <section className="rounded-2xl border border-gray-800 bg-surface-dark/50 overflow-hidden">
@@ -826,25 +845,35 @@ export default function RankingPage() {
                                 ) : (
                                     <div className="space-y-2">
                                         {historySeasons.map((season) => (
-                                            <button
-                                                key={season.season_key}
-                                                onClick={() => openSeasonModal(season.season_key, season.start, season.end)}
-                                                className="w-full flex items-center justify-between rounded-xl border border-gray-700 bg-black/20 px-4 py-3 hover:border-primary/50 hover:bg-primary/5 transition-all group text-left"
-                                            >
-                                                <div>
-                                                    <p className="text-sm font-semibold text-white">
-                                                        {formatDisplayDate(season.start)} — {formatDisplayDate(season.end)}
-                                                    </p>
-                                                    {season.finalized_at && (
-                                                        <p className="text-xs text-muted-dark mt-0.5">
-                                                            Finalizado el {formatDisplayDate(season.finalized_at.slice(0, 10))}
+                                            <div key={season.season_key} className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => openSeasonModal(season.season_key, season.start, season.end)}
+                                                    className="flex-1 flex items-center justify-between rounded-xl border border-gray-700 bg-black/20 px-4 py-3 hover:border-primary/50 hover:bg-primary/5 transition-all group text-left"
+                                                >
+                                                    <div>
+                                                        <p className="text-sm font-semibold text-white">
+                                                            {formatDisplayDate(season.start)} — {formatDisplayDate(season.end)}
                                                         </p>
-                                                    )}
-                                                </div>
-                                                <span className="material-icons-round text-sm text-muted-dark group-hover:text-primary transition-colors shrink-0 ml-2">
-                                                    emoji_events
-                                                </span>
-                                            </button>
+                                                        {season.finalized_at && (
+                                                            <p className="text-xs text-muted-dark mt-0.5">
+                                                                Finalizado el {formatDisplayDate(season.finalized_at.slice(0, 10))}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <span className="material-icons-round text-sm text-muted-dark group-hover:text-primary transition-colors shrink-0 ml-2">
+                                                        emoji_events
+                                                    </span>
+                                                </button>
+                                                {canConfigure && (
+                                                    <button
+                                                        onClick={() => handleDeleteSeason(season.season_key)}
+                                                        className="p-2 rounded-lg border border-gray-700 bg-black/20 text-gray-500 hover:border-red-500/60 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0"
+                                                        title="Eliminar temporada"
+                                                    >
+                                                        <span className="material-icons-round text-base">delete</span>
+                                                    </button>
+                                                )}
+                                            </div>
                                         ))}
                                     </div>
                                 )}
@@ -906,6 +935,7 @@ export default function RankingPage() {
                     </div>
                 </div>
             )}
+            </div>
         </div>
     );
 }
