@@ -1,16 +1,28 @@
 import { createNotification } from '@/lib/notifications';
 import { publishRankingEvent } from '@/lib/realtime';
 
+function hasTimeComponent(value) {
+    return typeof value === 'string' && value.length > 10;
+}
+
 function toDateStart(value) {
+    if (hasTimeComponent(value)) {
+        const v = value.replace('T', ' ').trim();
+        return v.length === 16 ? v + ':00' : v;
+    }
     return `${value} 00:00:00`;
 }
 
 function toDateEnd(value) {
+    if (hasTimeComponent(value)) {
+        const v = value.replace('T', ' ').trim();
+        return v.length === 16 ? v + ':00' : v;
+    }
     return `${value} 23:59:59`;
 }
 
-function getTodayISO() {
-    return new Date().toISOString().slice(0, 10);
+function getCurrentDatetime() {
+    return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
 
 function getCurrentMonthRange() {
@@ -277,7 +289,7 @@ async function notifyTopChanges(db, previousPositions, currentRows) {
 }
 
 async function finalizeSeasonIfClosed(db, { start, end, groupId, forceFinalize = false }) {
-    const isClosed = forceFinalize || String(end) < getTodayISO();
+    const isClosed = forceFinalize || toDateEnd(end) < getCurrentDatetime();
     if (!isClosed) return null;
 
     await ensureRankingStateTables(db);
@@ -302,7 +314,7 @@ async function finalizeSeasonIfClosed(db, { start, end, groupId, forceFinalize =
         }));
     }
 
-    const ranking = await computeRankingForScope(db, { start, end, groupId, limit: 6 });
+    const ranking = await computeRankingForScope(db, { start, end, groupId, limit: 10 });
     for (const row of ranking) {
         await db.prepare(`
             INSERT INTO ranking_final_results (
@@ -378,7 +390,7 @@ export async function refreshRankingRealtime(db, { groupIds = null, notifyPositi
         }
     }
 
-    const seasonClosed = Boolean(range.forceFinalize) || String(range.end) < getTodayISO();
+    const seasonClosed = Boolean(range.forceFinalize) || toDateEnd(range.end) < getCurrentDatetime();
     for (const groupId of targetGroupIds) {
         const seasonKey = getSeasonKey(range.start, range.end, groupId);
         const previousMap = await loadPreviousPositions(db, seasonKey);

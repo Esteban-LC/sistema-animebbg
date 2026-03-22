@@ -6,15 +6,31 @@ import { getFinalTopForScope, refreshRankingRealtime } from '@/lib/ranking';
 const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
 
 function isISODate(value) {
-    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/.test(value);
+}
+
+function hasTimeComponent(value) {
+    return typeof value === 'string' && value.length > 10;
 }
 
 function toDateStart(value) {
+    if (hasTimeComponent(value)) {
+        const v = value.replace('T', ' ').trim();
+        return v.length === 16 ? v + ':00' : v;
+    }
     return `${value} 00:00:00`;
 }
 
 function toDateEnd(value) {
+    if (hasTimeComponent(value)) {
+        const v = value.replace('T', ' ').trim();
+        return v.length === 16 ? v + ':00' : v;
+    }
     return `${value} 23:59:59`;
+}
+
+function getCurrentDatetime() {
+    return new Date().toISOString().slice(0, 19).replace('T', ' ');
 }
 
 function addDaysToISO(isoDate, days) {
@@ -28,10 +44,6 @@ function getInclusiveDays(start, end) {
     const endDate = new Date(`${end}T00:00:00.000Z`);
     const diff = Math.round((endDate.getTime() - startDate.getTime()) / 86400000);
     return diff + 1;
-}
-
-function getTodayISO() {
-    return new Date().toISOString().slice(0, 10);
 }
 
 function getCurrentMonthRange() {
@@ -146,8 +158,81 @@ export async function GET(request) {
 
         const officialRange = await getOrCreateRankingConfig(db);
         const { searchParams } = new URL(request.url);
+        const action = searchParams.get('action');
         const queryStart = searchParams.get('start');
         const queryEnd = searchParams.get('end');
+
+        if (action === 'history') {
+            try {
+                await db.prepare(`
+                    CREATE TABLE IF NOT EXISTS ranking_final_results (
+                        season_key TEXT NOT NULL,
+                        posicion INTEGER NOT NULL,
+                        usuario_id INTEGER NOT NULL,
+                        usuario_nombre TEXT NOT NULL,
+                        grupo_id INTEGER,
+                        completados INTEGER NOT NULL DEFAULT 0,
+                        traductor INTEGER NOT NULL DEFAULT 0,
+                        redrawer INTEGER NOT NULL DEFAULT 0,
+                        typer INTEGER NOT NULL DEFAULT 0,
+                        finalized_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (season_key, posicion)
+                    )
+                `).run();
+            } catch { /* already exists */ }
+
+            const seasonKey = searchParams.get('season_key');
+            if (seasonKey) {
+                const rows = await db.prepare(`
+                    SELECT posicion, usuario_id, usuario_nombre, completados, traductor, redrawer, typer
+                    FROM ranking_final_results
+                    WHERE season_key = ?
+                    ORDER BY posicion ASC
+                    LIMIT 10
+                `).all(seasonKey);
+                return NextResponse.json({
+                    ok: true,
+                    entries: Array.isArray(rows) ? rows.map(row => ({
+                        posicion: Number(row.posicion),
+                        usuario_id: Number(row.usuario_id),
+                        usuario_nombre: String(row.usuario_nombre || ''),
+                        completados: Number(row.completados || 0),
+                        traductor: Number(row.traductor || 0),
+                        redrawer: Number(row.redrawer || 0),
+                        typer: Number(row.typer || 0),
+                    })) : [],
+                });
+            }
+
+            const currentSeasonKey = officialRange
+                ? `${officialRange.start}|${officialRange.end}|all`
+                : null;
+            const rows = currentSeasonKey
+                ? await db.prepare(`
+                    SELECT season_key, MIN(finalized_at) as finalized_at
+                    FROM ranking_final_results
+                    WHERE season_key LIKE '%|all' AND season_key != ?
+                    GROUP BY season_key
+                    ORDER BY season_key DESC
+                `).all(currentSeasonKey)
+                : await db.prepare(`
+                    SELECT season_key, MIN(finalized_at) as finalized_at
+                    FROM ranking_final_results
+                    WHERE season_key LIKE '%|all'
+                    GROUP BY season_key
+                    ORDER BY season_key DESC
+                `).all();
+            const seasons = Array.isArray(rows) ? rows.map(row => {
+                const parts = String(row.season_key).split('|');
+                return {
+                    season_key: String(row.season_key),
+                    start: parts[0] || '',
+                    end: parts[1] || '',
+                    finalized_at: String(row.finalized_at || ''),
+                };
+            }) : [];
+            return NextResponse.json({ ok: true, seasons });
+        }
 
         let start = officialRange?.start || null;
         let end = officialRange?.end || null;
@@ -188,7 +273,7 @@ export async function GET(request) {
                 canConfigure: false,
                 isPreview: false,
                 hasActiveSeason: false,
-                seasonClosed: forceFinalized || String(end) < getTodayISO(),
+                seasonClosed: forceFinalized || toDateEnd(String(end)) < getCurrentDatetime(),
                 rankingHidden: true,
                 forceFinalized,
                 range: { start, end },
@@ -303,7 +388,7 @@ export async function GET(request) {
             emitEvent: false,
         });
 
-        const seasonClosed = forceFinalized || String(end) < getTodayISO();
+        const seasonClosed = forceFinalized || toDateEnd(String(end)) < getCurrentDatetime();
         let finalTop6 = [];
         if (seasonClosed && !isPreview) {
             if (isAdmin || viewerGroupId) {
@@ -398,9 +483,10 @@ export async function PATCH(request) {
         }
 
         if (!isISODate(start) || !isISODate(end)) {
-            return NextResponse.json({ error: 'Fechas invalidas. Usa formato YYYY-MM-DD.' }, { status: 400 });
+            return NextResponse.json({ error: 'Fechas invalidas. Usa formato YYYY-MM-DD o YYYY-MM-DD HH:MM.' }, { status: 400 });
         }
-        if (start > end) {
+        const normalizeForCompare = (v) => String(v).replace('T', ' ');
+        if (normalizeForCompare(start) > normalizeForCompare(end)) {
             return NextResponse.json({ error: 'La fecha de inicio no puede ser mayor que la fecha de fin.' }, { status: 400 });
         }
 

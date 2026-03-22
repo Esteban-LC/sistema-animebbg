@@ -7,6 +7,23 @@ import { useToast } from '@/context/ToastContext';
 
 type DurationMode = '7d' | '14d' | '30d' | 'custom';
 
+interface HistorySeason {
+    season_key: string;
+    start: string;
+    end: string;
+    finalized_at: string;
+}
+
+interface HistoryEntry {
+    posicion: number;
+    usuario_id: number;
+    usuario_nombre: string;
+    completados: number;
+    traductor: number;
+    redrawer: number;
+    typer: number;
+}
+
 interface RankingEntry {
     usuario_id: number;
     usuario_nombre: string;
@@ -85,15 +102,37 @@ function podiumScoreClass(position: number) {
     return 'ranking-score-3';
 }
 
+function extractDate(datetime: string): string {
+    return datetime.slice(0, 10);
+}
+
+function extractTime(datetime: string): string {
+    if (datetime.length > 10) return datetime.slice(11, 16);
+    return '';
+}
+
+function formatDisplayDate(dateStr: string): string {
+    if (!dateStr) return '';
+    const date = dateStr.slice(0, 10);
+    const parts = date.split('-');
+    if (parts.length !== 3) return dateStr;
+    const time = dateStr.length > 10 ? ' ' + dateStr.slice(11, 16) : '';
+    return `${parts[2]}/${parts[1]}/${parts[0]}${time}`;
+}
+
 export default function RankingPage() {
     const { user } = useUser();
     const { showToast } = useToast();
     const [canConfigure, setCanConfigure] = useState(false);
     const [duration, setDuration] = useState<DurationMode>('custom');
     const [startDate, setStartDate] = useState<string>('');
+    const [startTime, setStartTime] = useState<string>('00:00');
     const [endDate, setEndDate] = useState<string>('');
+    const [endTime, setEndTime] = useState<string>('23:59');
     const [officialStartDate, setOfficialStartDate] = useState<string>('');
+    const [officialStartTime, setOfficialStartTime] = useState<string>('');
     const [officialEndDate, setOfficialEndDate] = useState<string>('');
+    const [officialEndTime, setOfficialEndTime] = useState<string>('');
     const [ranking, setRanking] = useState<RankingEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -104,6 +143,13 @@ export default function RankingPage() {
     const [rankingHidden, setRankingHidden] = useState(false);
     const [forceFinalized, setForceFinalized] = useState(false);
     const [finalTop6, setFinalTop6] = useState<RankingEntry[]>([]);
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [historySeasons, setHistorySeasons] = useState<HistorySeason[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [modalOpen, setModalOpen] = useState(false);
+    const [modalLoading, setModalLoading] = useState(false);
+    const [modalSeason, setModalSeason] = useState<{ start: string; end: string } | null>(null);
+    const [modalEntries, setModalEntries] = useState<HistoryEntry[]>([]);
 
     const topThree = useMemo(() => ranking.slice(0, 3), [ranking]);
     const tableEntries = useMemo(() => ranking.slice(3), [ranking]);
@@ -145,17 +191,25 @@ export default function RankingPage() {
             setRankingHidden(Boolean(typed.rankingHidden));
             setForceFinalized(Boolean(typed.forceFinalized));
             setFinalTop6(Array.isArray(typed.finalTop6) ? typed.finalTop6 : []);
-            setOfficialStartDate(typed.officialRange?.start || '');
-            setOfficialEndDate(typed.officialRange?.end || '');
+            const rawStart = typed.officialRange?.start || '';
+            const rawEnd = typed.officialRange?.end || '';
+            setOfficialStartDate(extractDate(rawStart));
+            setOfficialStartTime(extractTime(rawStart));
+            setOfficialEndDate(extractDate(rawEnd));
+            setOfficialEndTime(extractTime(rawEnd));
 
             if (!previewRange) {
-                if (typed.officialRange?.start && typed.officialRange?.end) {
-                    setStartDate(typed.officialRange.start);
-                    setEndDate(typed.officialRange.end);
+                if (rawStart && rawEnd) {
+                    setStartDate(extractDate(rawStart));
+                    setStartTime(extractTime(rawStart) || '00:00');
+                    setEndDate(extractDate(rawEnd));
+                    setEndTime(extractTime(rawEnd) || '23:59');
                 } else {
                     const fallback = getRangeByMode('7d');
                     setStartDate(fallback.start);
+                    setStartTime('00:00');
                     setEndDate(fallback.end);
+                    setEndTime('23:59');
                 }
             }
         } catch {
@@ -193,17 +247,21 @@ export default function RankingPage() {
 
     const handlePreview = async () => {
         if (!startDate || !endDate) return;
-        await loadRanking({ start: startDate, end: endDate });
+        const startValue = startTime ? `${startDate} ${startTime}` : startDate;
+        const endValue = endTime ? `${endDate} ${endTime}` : endDate;
+        await loadRanking({ start: startValue, end: endValue });
     };
 
     const handleSave = async () => {
         if (!startDate || !endDate) return;
+        const startValue = startTime ? `${startDate} ${startTime}` : startDate;
+        const endValue = endTime ? `${endDate} ${endTime}` : endDate;
         setSaving(true);
         try {
             const res = await fetch('/api/ranking', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start: startDate, end: endDate }),
+                body: JSON.stringify({ start: startValue, end: endValue }),
             });
             const data = await res.json();
             if (!res.ok) {
@@ -264,6 +322,43 @@ export default function RankingPage() {
         }
     };
 
+    const loadHistory = async () => {
+        setHistoryLoading(true);
+        try {
+            const res = await fetch('/api/ranking?action=history');
+            const data = await res.json();
+            setHistorySeasons(data.seasons || []);
+        } catch {
+            // ignore
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    const openSeasonModal = async (seasonKey: string, start: string, end: string) => {
+        setModalSeason({ start, end });
+        setModalOpen(true);
+        setModalLoading(true);
+        setModalEntries([]);
+        try {
+            const res = await fetch(`/api/ranking?action=history&season_key=${encodeURIComponent(seasonKey)}`);
+            const data = await res.json();
+            setModalEntries(data.entries || []);
+        } catch {
+            // ignore
+        } finally {
+            setModalLoading(false);
+        }
+    };
+
+    const handleToggleHistory = () => {
+        const next = !historyOpen;
+        setHistoryOpen(next);
+        if (next && historySeasons.length === 0) {
+            loadHistory();
+        }
+    };
+
     const champion = topThree[0];
     const secondPlace = topThree[1];
     const thirdPlace = topThree[2];
@@ -298,7 +393,9 @@ export default function RankingPage() {
                                     <h2 className="text-xl md:text-2xl text-white font-display font-bold uppercase tracking-wide">Ranking de Colaboradores</h2>
                                     {officialStartDate && officialEndDate && (
                                         <p className="text-sm text-muted-dark mt-1">
-                                            Periodo oficial: <span className="text-gray-100 font-semibold">{officialStartDate} a {officialEndDate}</span>
+                                            Periodo oficial: <span className="text-gray-100 font-semibold">
+                                                {formatDisplayDate(officialStartDate)}{officialStartTime ? ` ${officialStartTime}` : ''} a {formatDisplayDate(officialEndDate)}{officialEndTime ? ` ${officialEndTime}` : ''}
+                                            </span>
                                         </p>
                                     )}
                                 </div>
@@ -331,6 +428,15 @@ export default function RankingPage() {
                                             }}
                                             className="mt-2 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                                         />
+                                        <input
+                                            type="time"
+                                            value={startTime}
+                                            onChange={(e) => {
+                                                setDuration('custom');
+                                                setStartTime(e.target.value);
+                                            }}
+                                            className="mt-1 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
+                                        />
                                     </label>
 
                                     <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
@@ -343,6 +449,15 @@ export default function RankingPage() {
                                                 setEndDate(e.target.value);
                                             }}
                                             className="mt-2 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                                        />
+                                        <input
+                                            type="time"
+                                            value={endTime}
+                                            onChange={(e) => {
+                                                setDuration('custom');
+                                                setEndTime(e.target.value);
+                                            }}
+                                            className="mt-1 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
                                         />
                                     </label>
 
@@ -682,8 +797,118 @@ export default function RankingPage() {
                         </div>
                     </section>
                 </div>
-            </div>
+
+                    {/* History collapse */}
+                    <section className="rounded-2xl border border-gray-800 bg-surface-dark/50 overflow-hidden">
+                        <button
+                            onClick={handleToggleHistory}
+                            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-black/20 transition-colors"
+                        >
+                            <span className="flex items-center gap-2 text-sm font-bold text-gray-300 uppercase tracking-wider">
+                                <span className="material-icons-round text-base text-muted-dark">history</span>
+                                Historial de Temporadas
+                            </span>
+                            <span className="material-icons-round text-gray-500 text-base">
+                                {historyOpen ? 'expand_less' : 'expand_more'}
+                            </span>
+                        </button>
+
+                        {historyOpen && (
+                            <div className="border-t border-gray-800 p-4">
+                                {historyLoading ? (
+                                    <div className="space-y-2">
+                                        {[1, 2, 3].map((i) => (
+                                            <div key={i} className="animate-pulse h-14 bg-black/20 rounded-xl" />
+                                        ))}
+                                    </div>
+                                ) : historySeasons.length === 0 ? (
+                                    <p className="text-sm text-muted-dark text-center py-3">No hay temporadas finalizadas anteriores.</p>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {historySeasons.map((season) => (
+                                            <button
+                                                key={season.season_key}
+                                                onClick={() => openSeasonModal(season.season_key, season.start, season.end)}
+                                                className="w-full flex items-center justify-between rounded-xl border border-gray-700 bg-black/20 px-4 py-3 hover:border-primary/50 hover:bg-primary/5 transition-all group text-left"
+                                            >
+                                                <div>
+                                                    <p className="text-sm font-semibold text-white">
+                                                        {formatDisplayDate(season.start)} — {formatDisplayDate(season.end)}
+                                                    </p>
+                                                    {season.finalized_at && (
+                                                        <p className="text-xs text-muted-dark mt-0.5">
+                                                            Finalizado el {formatDisplayDate(season.finalized_at.slice(0, 10))}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                                <span className="material-icons-round text-sm text-muted-dark group-hover:text-primary transition-colors shrink-0 ml-2">
+                                                    emoji_events
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </section>
+                </div>
+
+            {/* Season history modal */}
+            {modalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setModalOpen(false)}>
+                    <div className="relative w-full max-w-md rounded-2xl border border-gray-700 bg-surface-dark shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-4 border-b border-gray-800">
+                            <div>
+                                <p className="text-xs uppercase tracking-widest font-bold text-primary/80">Temporada Finalizada</p>
+                                {modalSeason && (
+                                    <p className="text-base font-display font-bold text-white mt-0.5">
+                                        {formatDisplayDate(modalSeason.start)} — {formatDisplayDate(modalSeason.end)}
+                                    </p>
+                                )}
+                            </div>
+                            <button
+                                onClick={() => setModalOpen(false)}
+                                className="p-1 rounded-lg hover:bg-black/30 text-gray-400 hover:text-white transition-colors"
+                            >
+                                <span className="material-icons-round text-xl">close</span>
+                            </button>
+                        </div>
+
+                        <div className="p-4 max-h-[28rem] overflow-y-auto">
+                            {modalLoading ? (
+                                <div className="space-y-2">
+                                    {[1, 2, 3].map((i) => (
+                                        <div key={i} className="animate-pulse h-11 bg-black/20 rounded-xl" />
+                                    ))}
+                                </div>
+                            ) : modalEntries.length === 0 ? (
+                                <p className="text-center text-sm text-muted-dark py-4">No hay datos para esta temporada.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {modalEntries.map((entry) => (
+                                        <div
+                                            key={entry.usuario_id}
+                                            className="flex items-center gap-3 rounded-xl border border-gray-700 bg-black/20 px-3 py-2"
+                                        >
+                                            <span className={`w-7 text-center font-display font-bold text-sm shrink-0 ${entry.posicion <= 3 ? 'text-amber-300' : 'text-gray-400'}`}>
+                                                #{entry.posicion}
+                                            </span>
+                                            <div className="w-8 h-8 rounded-full border border-gray-700 bg-surface-darker overflow-hidden shrink-0 flex items-center justify-center text-white text-xs font-bold">
+                                                {entry.usuario_nombre.slice(0, 1).toUpperCase()}
+                                            </div>
+                                            <p className="flex-1 text-sm font-semibold text-white truncate">{entry.usuario_nombre}</p>
+                                            <p className="text-sm font-bold text-primary shrink-0">{entry.completados} caps</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
+
+
 
