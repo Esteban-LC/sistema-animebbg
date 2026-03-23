@@ -773,45 +773,6 @@ export default function RankingPage() {
                                         })}
                                     </div>
 
-                                    {seasonClosed && finalTop6.length > 0 && (
-                                        <section className="mt-8 rounded-2xl border border-gray-700 bg-black/20 p-4">
-                                            <h3 className="text-lg md:text-xl font-display font-bold text-white uppercase tracking-wide">
-                                                Top 6 Final de Temporada
-                                            </h3>
-                                            <div className="mt-3 space-y-2">
-                                                {finalTop6.map((entry) => {
-                                                    const isSelfFinal = Number(entry.usuario_id) === Number(user?.id);
-                                                    return (
-                                                        <div
-                                                            key={`final-${entry.usuario_id}`}
-                                                            className={`flex items-center justify-between rounded-xl border px-3 py-2 ${isSelfFinal
-                                                                ? 'border-primary/50 bg-primary/10'
-                                                                : 'border-gray-700 bg-surface-darker/80'
-                                                                }`}
-                                                        >
-                                                            <div className="flex items-center gap-3 min-w-0">
-                                                                <span className="w-8 text-center text-base font-display font-bold text-amber-200">#{entry.posicion}</span>
-                                                                <p className="text-sm font-semibold text-white truncate">{entry.usuario_nombre}</p>
-                                                            </div>
-                                                            <p className="text-sm font-bold text-primary">{entry.completados} caps</p>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-
-                                            {selfFinalPosition && (
-                                                <div className="mt-4 rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-4">
-                                                    <p className="text-xs uppercase tracking-[0.2em] font-bold text-emerald-200">Resultado Personal</p>
-                                                    <p className="mt-1 text-lg font-display font-bold text-white">
-                                                        Felicidades, quedaste Top {selfFinalPosition.posicion}
-                                                    </p>
-                                                    <p className="text-sm text-emerald-100 mt-1">
-                                                        Cerraste la temporada con {selfFinalPosition.completados} capitulos completados.
-                                                    </p>
-                                                </div>
-                                            )}
-                                        </section>
-                                    )}
                                 </>
                             )}
                         </div>
