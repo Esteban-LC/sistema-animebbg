@@ -350,6 +350,16 @@ function hasProjectCreditosConfigured(config: CreditosConfig | null | undefined)
     );
 }
 
+// 'full' = plantilla_url + font set, 'partial' = algo configurado pero falta plantilla_url, 'none' = nada
+function getCreditosStatus(config: CreditosConfig | null | undefined): 'full' | 'partial' | 'none' {
+    if (!config) return 'none';
+    const imagen = config.imagen || {};
+    const hasSomething = hasProjectCreditosConfigured(config);
+    if (!hasSomething) return 'none';
+    const hasPlantillaUrl = Boolean(String(imagen.plantilla_url || '').trim());
+    return hasPlantillaUrl ? 'full' : 'partial';
+}
+
 export default function ProyectosPage() {
     const { toggle } = useSidebar();
     const { socket } = useSocket();
@@ -1151,19 +1161,34 @@ export default function ProyectosPage() {
                                                     <button
                                                         type="button"
                                                         onClick={() => handleOpenModal(p, 'creditos')}
-                                                        className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors hover:border-primary/60 ${hasProjectCreditosConfigured(p.creditos_config)
-                                                        ? 'border-emerald-500/30 bg-emerald-500/10'
-                                                        : 'border-red-500/30 bg-red-500/10'
+                                                        className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors hover:border-primary/60 ${
+                                                            getCreditosStatus(p.creditos_config) === 'full'
+                                                            ? 'border-emerald-500/30 bg-emerald-500/10'
+                                                            : getCreditosStatus(p.creditos_config) === 'partial'
+                                                            ? 'border-yellow-500/30 bg-yellow-500/10'
+                                                            : 'border-red-500/30 bg-red-500/10'
                                                         }`}
                                                     >
                                                         <div className="flex items-center gap-2 min-w-0">
-                                                            <span className={`material-icons-round text-base ${hasProjectCreditosConfigured(p.creditos_config) ? 'text-emerald-300' : 'text-red-300'}`}>
-                                                                {hasProjectCreditosConfigured(p.creditos_config) ? 'check_circle' : 'cancel'}
+                                                            <span className={`material-icons-round text-base ${
+                                                                getCreditosStatus(p.creditos_config) === 'full' ? 'text-emerald-300'
+                                                                : getCreditosStatus(p.creditos_config) === 'partial' ? 'text-yellow-300'
+                                                                : 'text-red-300'
+                                                            }`}>
+                                                                {getCreditosStatus(p.creditos_config) === 'full' ? 'check_circle'
+                                                                : getCreditosStatus(p.creditos_config) === 'partial' ? 'warning'
+                                                                : 'cancel'}
                                                             </span>
                                                             <span className="text-[11px] font-bold uppercase tracking-wider text-gray-200">Plantilla creditos</span>
                                                         </div>
-                                                        <span className={`text-[10px] font-bold uppercase tracking-wider ${hasProjectCreditosConfigured(p.creditos_config) ? 'text-emerald-200' : 'text-red-200'}`}>
-                                                            {hasProjectCreditosConfigured(p.creditos_config) ? 'Asignada' : 'Pendiente'}
+                                                        <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                                                            getCreditosStatus(p.creditos_config) === 'full' ? 'text-emerald-200'
+                                                            : getCreditosStatus(p.creditos_config) === 'partial' ? 'text-yellow-200'
+                                                            : 'text-red-200'
+                                                        }`}>
+                                                            {getCreditosStatus(p.creditos_config) === 'full' ? 'Asignada'
+                                                            : getCreditosStatus(p.creditos_config) === 'partial' ? 'Falta URL Base'
+                                                            : 'Pendiente'}
                                                         </span>
                                                     </button>
                                                 </div>
