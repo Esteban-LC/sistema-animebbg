@@ -366,6 +366,7 @@ export default function ProyectosPage() {
     const [chapterInput, setChapterInput] = useState('');
     const [chapterUrlInput, setChapterUrlInput] = useState('');
     const [saveError, setSaveError] = useState('');
+    const [savingPlantillaAll, setSavingPlantillaAll] = useState(false);
     const [roleSyncLoading, setRoleSyncLoading] = useState(false);
     const [roleSyncError, setRoleSyncError] = useState('');
     const [roleSyncInfo, setRoleSyncInfo] = useState('');
@@ -515,6 +516,30 @@ export default function ProyectosPage() {
             return Number(proyecto.capitulos_totales);
         }
         return null;
+    };
+
+    const handleSetPlantillaAll = async (url: string) => {
+        if (!url.trim()) return;
+        if (!confirm(`¿Aplicar esta URL de plantilla a TODOS los proyectos?\n\n${url}`)) return;
+        setSavingPlantillaAll(true);
+        setSaveError('');
+        try {
+            const res = await fetch('/api/proyectos', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'set_plantilla_all', plantilla_url: url }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setSaveError(data?.error || 'No se pudo aplicar la plantilla a todos');
+                return;
+            }
+            await fetchProyectos();
+        } catch {
+            setSaveError('Error de conexion al aplicar plantilla a todos');
+        } finally {
+            setSavingPlantillaAll(false);
+        }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -1606,22 +1631,33 @@ export default function ProyectosPage() {
                                     <div className="rounded-xl border border-gray-700 bg-background-dark/60 p-4 space-y-3">
                                         <h4 className="text-sm font-bold text-white uppercase tracking-wider">Plantilla Creditos (Solo Imagen)</h4>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                            <input
-                                                type="text"
-                                                value={currentProject.creditos_config?.imagen?.plantilla_url || ''}
-                                                onChange={(e) => setCurrentProject((prev) => ({
-                                                    ...prev,
-                                                    creditos_config: normalizeCreditosConfig({
-                                                        ...prev.creditos_config,
-                                                        imagen: {
-                                                            ...prev.creditos_config?.imagen,
-                                                            plantilla_url: e.target.value,
-                                                        },
-                                                    }),
-                                                }))}
-                                                className="bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
-                                                placeholder="URL plantilla base"
-                                            />
+                                            <div className="flex gap-1">
+                                                <input
+                                                    type="text"
+                                                    value={currentProject.creditos_config?.imagen?.plantilla_url || ''}
+                                                    onChange={(e) => setCurrentProject((prev) => ({
+                                                        ...prev,
+                                                        creditos_config: normalizeCreditosConfig({
+                                                            ...prev.creditos_config,
+                                                            imagen: {
+                                                                ...prev.creditos_config?.imagen,
+                                                                plantilla_url: e.target.value,
+                                                            },
+                                                        }),
+                                                    }))}
+                                                    className="flex-1 bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
+                                                    placeholder="URL plantilla base"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSetPlantillaAll(currentProject.creditos_config?.imagen?.plantilla_url || '')}
+                                                    disabled={savingPlantillaAll || !currentProject.creditos_config?.imagen?.plantilla_url}
+                                                    className="px-2 py-1 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-[11px] font-bold disabled:opacity-40 shrink-0"
+                                                    title="Aplicar esta URL a todos los proyectos"
+                                                >
+                                                    Todos
+                                                </button>
+                                            </div>
                                             <input
                                                 type="text"
                                                 value={currentProject.creditos_config?.imagen?.overlay_url || ''}

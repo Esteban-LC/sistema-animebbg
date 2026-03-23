@@ -624,3 +624,50 @@ export async function POST(request) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
+
+export async function PATCH(request) {
+    try {
+        const db = getDb();
+        const cookieStore = await cookies();
+        const token = cookieStore.get('auth_token')?.value;
+        if (!token) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+        const session = await db.prepare(`
+            SELECT u.roles FROM sessions s
+            JOIN usuarios u ON s.usuario_id = u.id
+            WHERE s.token = ? AND s.expires_at > datetime('now')
+        `).get(token);
+        if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+        const roles = JSON.parse(session.roles || '[]');
+        if (!roles.includes('Administrador')) {
+            return NextResponse.json({ error: 'Solo administradores pueden hacer esto.' }, { status: 403 });
+        }
+
+        const body = await request.json();
+        const { action, plantilla_url } = body;
+
+        if (action === 'set_plantilla_all') {
+            const url = String(plantilla_url || '').trim();
+            if (!url) return NextResponse.json({ error: 'plantilla_url es requerida.' }, { status: 400 });
+
+            const allProjects = await db.prepare('SELECT id, creditos_config FROM proyectos').all();
+            let updated = 0;
+            for (const proj of Array.isArray(allProjects) ? allProjects : []) {
+                let config = {};
+                try { config = proj.creditos_config ? JSON.parse(proj.creditos_config) : {}; } catch { config = {}; }
+                if (!config || typeof config !== 'object') config = {};
+                if (!config.imagen || typeof config.imagen !== 'object') config.imagen = {};
+                config.imagen.plantilla_url = url;
+                await db.prepare(
+                    'UPDATE proyectos SET creditos_config = ?, ultima_actualizacion = CURRENT_TIMESTAMP WHERE id = ?'
+                ).run(JSON.stringify(config), proj.id);
+                updated++;
+            }
+            return NextResponse.json({ ok: true, updated });
+        }
+
+        return NextResponse.json({ error: 'Accion no reconocida.' }, { status: 400 });
+    } catch (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
