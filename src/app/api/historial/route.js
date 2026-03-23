@@ -73,8 +73,8 @@ export async function GET(request) {
         } else if (includeSummary) {
             const officialRange = await getOfficialRankingRange(db);
             if (officialRange?.start && officialRange?.end) {
-                start = String(officialRange.start);
-                end = String(officialRange.end);
+                start = String(officialRange.start).slice(0, 10);
+                end = String(officialRange.end).slice(0, 10);
             }
         }
 
