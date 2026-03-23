@@ -655,7 +655,7 @@ export async function PATCH(request) {
         await ensureCreditosTable(db);
 
         const body = await request.json();
-        const { proyecto_id, capitulo, traductores, typers, redrawers, rol, drive_url, usuario_id, creditos, plantilla_layout, layout_global_default } = body;
+        const { proyecto_id, capitulo, traductores, typers, redrawers, rol, drive_url, usuario_id, creditos, plantilla_layout, layout_global_default, apply_layout_all } = body;
 
         if (!proyecto_id || capitulo === undefined || capitulo === null) {
             return NextResponse.json({ error: 'proyecto_id y capitulo son requeridos' }, { status: 400 });
@@ -682,6 +682,49 @@ export async function PATCH(request) {
             return NextResponse.json({
                 message: 'Default global guardado',
                 layout: payload,
+            });
+        }
+
+        if (apply_layout_all && typeof apply_layout_all === 'object') {
+            const sanitize = (v) => Number.isFinite(Number(v)) ? Number(v) : null;
+            const newLayout = {
+                names_x: sanitize(apply_layout_all.names_x),
+                traductor_y: sanitize(apply_layout_all.traductor_y),
+                typer_y: sanitize(apply_layout_all.typer_y),
+                redraw_y: sanitize(apply_layout_all.redraw_y),
+                cleaner_y: sanitize(apply_layout_all.cleaner_y),
+            };
+            // Save as global default too
+            await ensureAppSettingsTable(db);
+            await db.prepare(`
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES ('creditos_layout_default', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP
+            `).run(JSON.stringify(newLayout));
+            // Apply to all projects
+            await ensureProjectColumn(db, 'creditos_config', 'creditos_config TEXT');
+            const allProjects = await db.prepare(`SELECT id, creditos_config FROM proyectos`).all();
+            for (const proj of Array.isArray(allProjects) ? allProjects : []) {
+                const currentConfig = normalizeProjectCreditosConfig(proj.creditos_config);
+                const mergedConfig = {
+                    ...currentConfig,
+                    imagen: {
+                        ...currentConfig.imagen,
+                        layout: newLayout,
+                    },
+                };
+                await db.prepare(`
+                    UPDATE proyectos
+                    SET creditos_config = ?, ultima_actualizacion = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `).run(JSON.stringify(mergedConfig), proj.id);
+            }
+            return NextResponse.json({
+                ok: true,
+                message: `Layout aplicado a ${Array.isArray(allProjects) ? allProjects.length : 0} proyectos`,
+                layout: newLayout,
             });
         }
 

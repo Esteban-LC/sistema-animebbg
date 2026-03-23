@@ -100,11 +100,11 @@ export default function CompletadosPage() {
         cleaner_alias: '',
     });
     const [layoutForm, setLayoutForm] = useState({
-        names_x_pct: 37,
-        traductor_y_pct: 28,
-        typer_y_pct: 41,
-        redraw_y_pct: 54,
-        cleaner_y_pct: 67,
+        names_x_pct: 32.6,
+        traductor_y_pct: 25.3,
+        typer_y_pct: 36.3,
+        redraw_y_pct: 46.6,
+        cleaner_y_pct: 58.3,
     });
     const [previewImageUrl, setPreviewImageUrl] = useState<string>('');
     const [previewLoading, setPreviewLoading] = useState(false);
@@ -293,11 +293,11 @@ export default function CompletadosPage() {
             cleaner_alias: String(c.cleaner_alias || ''),
         });
         setLayoutForm({
-            names_x_pct: toPct((l as Record<string, unknown>).names_x, 37),
-            traductor_y_pct: toPct((l as Record<string, unknown>).traductor_y, 28),
-            typer_y_pct: toPct((l as Record<string, unknown>).typer_y, 41),
-            redraw_y_pct: toPct((l as Record<string, unknown>).redraw_y, 54),
-            cleaner_y_pct: toPct((l as Record<string, unknown>).cleaner_y, 67),
+            names_x_pct: toPct((l as Record<string, unknown>).names_x, 32.6),
+            traductor_y_pct: toPct((l as Record<string, unknown>).traductor_y, 25.3),
+            typer_y_pct: toPct((l as Record<string, unknown>).typer_y, 36.3),
+            redraw_y_pct: toPct((l as Record<string, unknown>).redraw_y, 46.6),
+            cleaner_y_pct: toPct((l as Record<string, unknown>).cleaner_y, 58.3),
         });
     };
 
@@ -454,6 +454,40 @@ export default function CompletadosPage() {
             }) : prev);
         } catch {
             setError('Error de conexion al guardar posicion');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const saveGlobalLayoutAll = async () => {
+        if (!registroItem) return;
+        if (!confirm('¿Aplicar este layout a TODOS los proyectos? Esto sobreescribirá el layout guardado en cada proyecto.')) return;
+        setSaving(true);
+        setError(null);
+        try {
+            const payloadLayout = {
+                names_x: Number(layoutForm.names_x_pct) / 100,
+                traductor_y: Number(layoutForm.traductor_y_pct) / 100,
+                typer_y: Number(layoutForm.typer_y_pct) / 100,
+                redraw_y: Number(layoutForm.redraw_y_pct) / 100,
+                cleaner_y: Number(layoutForm.cleaner_y_pct) / 100,
+            };
+            const res = await fetch('/api/completados', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    proyecto_id: registroItem.proyecto_id,
+                    capitulo: registroItem.capitulo,
+                    apply_layout_all: payloadLayout,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setError(data?.error || 'No se pudo aplicar layout a todos');
+                return;
+            }
+        } catch {
+            setError('Error de conexion al aplicar layout a todos');
         } finally {
             setSaving(false);
         }
@@ -758,12 +792,12 @@ export default function CompletadosPage() {
                 buildFinalCreditName(creditosForm.cleaner_tag, creditosForm.cleaner_alias) || '-',
             ];
             const namesY = [
-                toPx(Number(layoutForm.traductor_y_pct) / 100 || (layout as Record<string, unknown>).traductor_y, height * 0.28, height),
-                toPx(Number(layoutForm.typer_y_pct) / 100 || (layout as Record<string, unknown>).typer_y, height * 0.41, height),
-                toPx(Number(layoutForm.redraw_y_pct) / 100 || (layout as Record<string, unknown>).redraw_y, height * 0.54, height),
-                toPx(Number(layoutForm.cleaner_y_pct) / 100 || (layout as Record<string, unknown>).cleaner_y, height * 0.67, height),
+                toPx(Number(layoutForm.traductor_y_pct) / 100 || (layout as Record<string, unknown>).traductor_y, height * 0.253, height),
+                toPx(Number(layoutForm.typer_y_pct) / 100 || (layout as Record<string, unknown>).typer_y, height * 0.363, height),
+                toPx(Number(layoutForm.redraw_y_pct) / 100 || (layout as Record<string, unknown>).redraw_y, height * 0.466, height),
+                toPx(Number(layoutForm.cleaner_y_pct) / 100 || (layout as Record<string, unknown>).cleaner_y, height * 0.583, height),
             ];
-            const namesX = toPx(Number(layoutForm.names_x_pct) / 100 || (layout as Record<string, unknown>).names_x, width * 0.37, width);
+            const namesX = toPx(Number(layoutForm.names_x_pct) / 100 || (layout as Record<string, unknown>).names_x, width * 0.326, width);
             rows.forEach((name, index) => {
                 ctx.fillText(String(name || '-'), namesX, namesY[index]);
             });
@@ -1070,6 +1104,14 @@ export default function CompletadosPage() {
                                                     className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold disabled:opacity-60"
                                                 >
                                                     Default global
+                                                </button>
+                                                <button
+                                                    onClick={saveGlobalLayoutAll}
+                                                    disabled={saving}
+                                                    className="px-2.5 py-1 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-[11px] font-bold disabled:opacity-60"
+                                                    title="Aplica este layout a todos los proyectos"
+                                                >
+                                                    Aplicar a todos
                                                 </button>
                                             </div>
                                         </div>
