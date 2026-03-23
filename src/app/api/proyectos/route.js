@@ -644,11 +644,11 @@ export async function PATCH(request) {
         }
 
         const body = await request.json();
-        const { action, plantilla_url } = body;
+        const { action, font_file_id } = body;
 
-        if (action === 'set_plantilla_all') {
-            const url = String(plantilla_url || '').trim();
-            if (!url) return NextResponse.json({ error: 'plantilla_url es requerida.' }, { status: 400 });
+        if (action === 'set_font_all') {
+            const fontId = String(font_file_id || '').trim();
+            if (!fontId) return NextResponse.json({ error: 'font_file_id es requerido.' }, { status: 400 });
 
             const allProjects = await db.prepare('SELECT id, creditos_config FROM proyectos').all();
             let updated = 0;
@@ -657,7 +657,7 @@ export async function PATCH(request) {
                 try { config = proj.creditos_config ? JSON.parse(proj.creditos_config) : {}; } catch { config = {}; }
                 if (!config || typeof config !== 'object') config = {};
                 if (!config.imagen || typeof config.imagen !== 'object') config.imagen = {};
-                config.imagen.plantilla_url = url;
+                config.imagen.font_file_id = fontId;
                 await db.prepare(
                     'UPDATE proyectos SET creditos_config = ?, ultima_actualizacion = CURRENT_TIMESTAMP WHERE id = ?'
                 ).run(JSON.stringify(config), proj.id);

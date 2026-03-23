@@ -518,25 +518,25 @@ export default function ProyectosPage() {
         return null;
     };
 
-    const handleSetPlantillaAll = async (url: string) => {
-        if (!url.trim()) return;
-        if (!confirm(`¿Aplicar esta URL de plantilla a TODOS los proyectos?\n\n${url}`)) return;
+    const handleSetFontAll = async (fontId: string) => {
+        if (!fontId.trim()) return;
+        if (!confirm(`¿Aplicar este ID/URL de fuente a TODOS los proyectos?\n\n${fontId}`)) return;
         setSavingPlantillaAll(true);
         setSaveError('');
         try {
             const res = await fetch('/api/proyectos', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'set_plantilla_all', plantilla_url: url }),
+                body: JSON.stringify({ action: 'set_font_all', font_file_id: fontId }),
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                setSaveError(data?.error || 'No se pudo aplicar la plantilla a todos');
+                setSaveError(data?.error || 'No se pudo aplicar la fuente a todos');
                 return;
             }
             await fetchProyectos();
         } catch {
-            setSaveError('Error de conexion al aplicar plantilla a todos');
+            setSaveError('Error de conexion al aplicar fuente a todos');
         } finally {
             setSavingPlantillaAll(false);
         }
@@ -1631,33 +1631,22 @@ export default function ProyectosPage() {
                                     <div className="rounded-xl border border-gray-700 bg-background-dark/60 p-4 space-y-3">
                                         <h4 className="text-sm font-bold text-white uppercase tracking-wider">Plantilla Creditos (Solo Imagen)</h4>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                            <div className="flex gap-1">
-                                                <input
-                                                    type="text"
-                                                    value={currentProject.creditos_config?.imagen?.plantilla_url || ''}
-                                                    onChange={(e) => setCurrentProject((prev) => ({
-                                                        ...prev,
-                                                        creditos_config: normalizeCreditosConfig({
-                                                            ...prev.creditos_config,
-                                                            imagen: {
-                                                                ...prev.creditos_config?.imagen,
-                                                                plantilla_url: e.target.value,
-                                                            },
-                                                        }),
-                                                    }))}
-                                                    className="flex-1 bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
-                                                    placeholder="URL plantilla base"
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleSetPlantillaAll(currentProject.creditos_config?.imagen?.plantilla_url || '')}
-                                                    disabled={savingPlantillaAll || !currentProject.creditos_config?.imagen?.plantilla_url}
-                                                    className="px-2 py-1 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-[11px] font-bold disabled:opacity-40 shrink-0"
-                                                    title="Aplicar esta URL a todos los proyectos"
-                                                >
-                                                    Todos
-                                                </button>
-                                            </div>
+                                            <input
+                                                type="text"
+                                                value={currentProject.creditos_config?.imagen?.plantilla_url || ''}
+                                                onChange={(e) => setCurrentProject((prev) => ({
+                                                    ...prev,
+                                                    creditos_config: normalizeCreditosConfig({
+                                                        ...prev.creditos_config,
+                                                        imagen: {
+                                                            ...prev.creditos_config?.imagen,
+                                                            plantilla_url: e.target.value,
+                                                        },
+                                                    }),
+                                                }))}
+                                                className="bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
+                                                placeholder="URL plantilla base"
+                                            />
                                             <input
                                                 type="text"
                                                 value={currentProject.creditos_config?.imagen?.overlay_url || ''}
@@ -1674,22 +1663,33 @@ export default function ProyectosPage() {
                                                 className="bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
                                                 placeholder="URL overlay (opcional)"
                                             />
-                                            <input
-                                                type="text"
-                                                value={currentProject.creditos_config?.imagen?.font_file_id || ''}
-                                                onChange={(e) => setCurrentProject((prev) => ({
-                                                    ...prev,
-                                                    creditos_config: normalizeCreditosConfig({
-                                                        ...prev.creditos_config,
-                                                        imagen: {
-                                                            ...prev.creditos_config?.imagen,
-                                                            font_file_id: e.target.value,
-                                                        },
-                                                    }),
-                                                }))}
-                                                className="bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
-                                                placeholder="ID o URL de fuente (Drive)"
-                                            />
+                                            <div className="flex gap-1">
+                                                <input
+                                                    type="text"
+                                                    value={currentProject.creditos_config?.imagen?.font_file_id || ''}
+                                                    onChange={(e) => setCurrentProject((prev) => ({
+                                                        ...prev,
+                                                        creditos_config: normalizeCreditosConfig({
+                                                            ...prev.creditos_config,
+                                                            imagen: {
+                                                                ...prev.creditos_config?.imagen,
+                                                                font_file_id: e.target.value,
+                                                            },
+                                                        }),
+                                                    }))}
+                                                    className="flex-1 bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
+                                                    placeholder="ID o URL de fuente (Drive)"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSetFontAll(currentProject.creditos_config?.imagen?.font_file_id || '')}
+                                                    disabled={savingPlantillaAll || !currentProject.creditos_config?.imagen?.font_file_id}
+                                                    className="px-2 py-1 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-[11px] font-bold disabled:opacity-40 shrink-0"
+                                                    title="Aplicar este ID/URL de fuente a todos los proyectos"
+                                                >
+                                                    Todos
+                                                </button>
+                                            </div>
                                             <input
                                                 type="text"
                                                 value={currentProject.creditos_config?.imagen?.font_family || 'Komika Title'}
