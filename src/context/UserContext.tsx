@@ -20,12 +20,19 @@ interface User {
 interface UserContextType {
     user: User | null;
     loading: boolean;
-    login: (credentials: any) => Promise<void>;
+    login: (credentials: LoginCredentials) => Promise<void>;
     logout: () => Promise<void>;
     refreshUser: () => Promise<void>;
 }
 
+interface LoginCredentials {
+    username: string;
+    password: string;
+    rememberMe?: boolean;
+}
+
 const UserContext = createContext<UserContextType | undefined>(undefined);
+const PUBLIC_PATHS = ['/login'];
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
@@ -37,9 +44,19 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         checkUser();
     }, []);
 
+    useEffect(() => {
+        if (loading) return;
+
+        const isPublicPath = PUBLIC_PATHS.includes(pathname);
+
+        if (!user && !isPublicPath) {
+            router.replace('/login');
+        }
+    }, [loading, pathname, router, user]);
+
     async function checkUser() {
         try {
-            const res = await fetch('/api/auth/me');
+            const res = await fetch('/api/auth/me', { cache: 'no-store' });
             if (res.ok) {
                 const userData = await res.json();
                 setUser(userData);
@@ -54,7 +71,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         }
     }
 
-    async function login(credentials: any) {
+    async function login(credentials: LoginCredentials) {
         const res = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -80,7 +97,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         try {
             await fetch('/api/auth/logout', { method: 'POST' });
             setUser(null);
-            router.push('/login');
+            router.replace('/login');
+            router.refresh();
         } catch (error) {
             console.error('Error logging out:', error);
         }

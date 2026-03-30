@@ -1,7 +1,5 @@
 import './globals.css';
-import Sidebar from '@/components/Sidebar';
-import MobileNavbar from '@/components/MobileNavbar';
-import BottomNav from '@/components/BottomNav';
+import AppShell from '@/components/AppShell';
 import CapacitorPushInit from '@/components/CapacitorPushInit';
 import { SidebarProvider } from '@/context/SidebarContext';
 import { UserProvider } from '@/context/UserContext';
@@ -44,17 +42,7 @@ export default function RootLayout({
               <ToastProvider>
                 <NotificationsProvider>
                   <CapacitorPushInit />
-                  {/* Provider Wrapper */}
-                  <div className="flex h-full w-full">
-                    <Sidebar />
-                    <div className="flex-1 flex flex-col min-w-0">
-                      <MobileNavbar />
-                      <main className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
-                        {children}
-                      </main>
-                      <BottomNav />
-                    </div>
-                  </div>
+                  <AppShell>{children}</AppShell>
                 </NotificationsProvider>
               </ToastProvider>
             </SocketProvider>
