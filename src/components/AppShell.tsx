@@ -11,7 +11,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     const { user, loading } = useUser();
 
     if (pathname === '/login') {
-        return <>{children}</>;
+        return <div className="h-full w-full">{children}</div>;
     }
 
     if (loading) {
