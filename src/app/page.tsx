@@ -46,19 +46,28 @@ export default function Dashboard() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [statsRes, asigRes] = await Promise.all([
+        const [statsRes, asigRes] = await Promise.allSettled([
           fetch('/api/estadisticas'),
           fetch('/api/asignaciones')
         ]);
 
-        if (statsRes.ok && asigRes.ok) {
-          const statsData = await statsRes.json();
-          const asigData = await asigRes.json();
+        if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
+          const statsData = await statsRes.value.json();
           setStats(statsData);
-          setRecentAssignments(asigData.slice(0, 10)); // Show last 10
+        } else {
+          setStats(null);
+        }
+
+        if (asigRes.status === 'fulfilled' && asigRes.value.ok) {
+          const asigData = await asigRes.value.json();
+          setRecentAssignments(Array.isArray(asigData) ? asigData.slice(0, 10) : []);
+        } else {
+          setRecentAssignments([]);
         }
       } catch (error) {
         console.error('Error fetching data:', error);
+        setStats(null);
+        setRecentAssignments([]);
       } finally {
         setLoading(false);
       }
@@ -75,13 +84,18 @@ export default function Dashboard() {
     };
   }, [socket]);
 
-  const safeStats = stats && !(stats as any).error ? stats : {
-    total_asignaciones: 0,
-    pendientes: 0,
-    en_proceso: 0,
-    completadas: 0,
-    por_rol: { redraw: 0, traduccion: 0, typeo: 0 }
+  const fallbackStatsFromAssignments: Stats = {
+    total_asignaciones: recentAssignments.length,
+    pendientes: recentAssignments.filter((item) => item.estado === 'Pendiente').length,
+    en_proceso: recentAssignments.filter((item) => item.estado === 'En Proceso').length,
+    completadas: recentAssignments.filter((item) => item.estado === 'Completado').length,
+    por_rol: {
+      redraw: recentAssignments.filter((item) => item.rol === 'Redrawer').length,
+      traduccion: recentAssignments.filter((item) => item.rol === 'Traductor').length,
+      typeo: recentAssignments.filter((item) => item.rol === 'Typer').length,
+    }
   };
+  const safeStats = stats && !(stats as any).error ? stats : fallbackStatsFromAssignments;
   const groupLabel = String(user?.grupo_nombre || 'Mi Grupo').toUpperCase();
 
   const getRoleLabel = (role: string) => {
