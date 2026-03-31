@@ -1,4 +1,4 @@
-import { getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, getDb } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createNotification, notifyRoles } from '@/lib/notifications';
@@ -135,7 +135,7 @@ async function getAuthContext(db) {
     if (!token) return null;
 
     const session = await db.prepare(`
-        SELECT s.usuario_id, u.roles
+        SELECT s.usuario_id, u.roles, u.grupo_id
         FROM sessions s
         JOIN usuarios u ON u.id = s.usuario_id
         WHERE s.token = ? AND s.expires_at > datetime('now')
@@ -153,7 +153,8 @@ async function getAuthContext(db) {
         userId: Number(session.usuario_id),
         roles,
         isAdmin: roles.includes('Administrador'),
-        isLeader: roles.includes('Lider de Grupo') && !roles.some((roleName) => PRODUCTION_ROLES.includes(roleName)),
+        isLeader: roles.includes('Lider de Grupo'),
+        groupId: session?.grupo_id ?? null,
     };
 }
 
@@ -161,7 +162,7 @@ async function getAsignacionDetalle(db, id, hasTraductorTipoColumn) {
     const asignacion = await db.prepare(`
       SELECT
         a.id, a.usuario_id, a.rol, ${hasTraductorTipoColumn ? 'a.traductor_tipo' : 'NULL as traductor_tipo'}, a.descripcion, a.estado,
-        a.asignado_en, a.completado_en, a.informe, a.drive_url, a.proyecto_id, a.capitulo,
+        a.asignado_en, a.completado_en, a.informe, a.drive_url, a.proyecto_id, a.capitulo, a.grupo_id_snapshot,
         u.nombre as usuario_nombre,
         u.discord_username,
         p.titulo as proyecto_titulo,
@@ -189,6 +190,19 @@ async function getAsignacionDetalle(db, id, hasTraductorTipoColumn) {
         raw_eng_url: String(match?.raw_eng_url || ''),
         core_raw_label: getCoreRawLabelByProjectType(asignacion?.proyecto_tipo || proyecto?.tipo),
     };
+}
+
+async function getAssignmentScopeGroupId(db, assignmentId) {
+    if (!assignmentId) return null;
+    const row = await db.prepare(`
+        SELECT COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) AS grupo_id
+        FROM asignaciones a
+        LEFT JOIN proyectos p ON p.id = a.proyecto_id
+        LEFT JOIN usuarios u ON u.id = a.usuario_id
+        WHERE a.id = ?
+        LIMIT 1
+    `).get(assignmentId);
+    return row?.grupo_id ?? null;
 }
 
 async function getUserGroupId(db, userId) {
@@ -238,6 +252,7 @@ export async function GET(request, context) {
         const id = await resolveAsignacionId(context);
         if (!id) return NextResponse.json({ error: 'ID de asignacion invalido' }, { status: 400 });
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
         const traductorTipoColumnExists = await ensureTraductorTipoColumn(db);
         const auth = await getAuthContext(db);
         if (!auth) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -248,7 +263,9 @@ export async function GET(request, context) {
         }
 
         const isOwner = Number(asignacion.usuario_id) === auth.userId;
-        if (!auth.isAdmin && !auth.isLeader && !isOwner) {
+        const assignmentGroupId = asignacion?.grupo_id_snapshot ?? await getAssignmentScopeGroupId(db, id);
+        const canViewAsLeader = auth.isLeader && auth.groupId && Number(assignmentGroupId) === Number(auth.groupId);
+        if (!auth.isAdmin && !canViewAsLeader && !isOwner) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
         }
 
@@ -266,6 +283,7 @@ export async function PATCH(request, context) {
         const { estado, informe, drive_url, usuario_id, capitulo, reset_tiro, traductor_tipo } = body;
 
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
         const traductorTipoColumnExists = await ensureTraductorTipoColumn(db);
         const auth = await getAuthContext(db);
         if (!auth) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -287,8 +305,10 @@ export async function PATCH(request, context) {
         const prevCapitulo = asignacionOriginal.capitulo;
         const prevEstado = asignacionOriginal.estado;
 
+        const assignmentGroupId = await getAssignmentScopeGroupId(db, id);
         const isOwner = Number(asignacionOriginal.usuario_id) === auth.userId;
-        const canTouch = auth.isAdmin || auth.isLeader || isOwner;
+        const canTouchAsLeader = auth.isLeader && auth.groupId && Number(assignmentGroupId) === Number(auth.groupId);
+        const canTouch = auth.isAdmin || canTouchAsLeader || isOwner;
         if (!canTouch) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
         }
@@ -305,6 +325,10 @@ export async function PATCH(request, context) {
                 return NextResponse.json({ error: 'Este miembro ya tiene 2 asignaciones activas. Completa o libera una antes de reasignar otra.' }, { status: 400 });
             }
             await db.prepare('UPDATE asignaciones SET usuario_id = ? WHERE id = ?').run(usuario_id, id);
+            if (!asignacionOriginal.proyecto_id) {
+                const nextUserGroupId = await getUserGroupId(db, nextUsuarioId);
+                await db.prepare('UPDATE asignaciones SET grupo_id_snapshot = ? WHERE id = ?').run(nextUserGroupId, id);
+            }
         }
 
         if (traductor_tipo !== undefined) {
@@ -360,9 +384,10 @@ export async function PATCH(request, context) {
                     proyecto_id = NULL,
                     capitulo = NULL,
                     completado_en = NULL,
-                    informe = NULL
+                    informe = NULL,
+                    grupo_id_snapshot = ?
                 WHERE id = ?
-            `).run(id);
+            `).run(await getUserGroupId(db, Number(usuario_id ?? asignacionOriginal.usuario_id)), id);
 
             await recalculateProjectProgress(db, asignacionOriginal?.proyecto_id);
         }
@@ -393,7 +418,7 @@ export async function PATCH(request, context) {
         const asignacion = await getAsignacionDetalle(db, id, traductorTipoColumnExists);
 
         if (usuario_id !== undefined && Number(usuario_id) !== prevUsuarioId) {
-            const reassignedGroupId = await getUserGroupId(db, usuario_id);
+            const reassignedGroupId = await getAssignmentScopeGroupId(db, id);
             await createNotification(db, {
                 usuarioId: Number(usuario_id),
                 tipo: 'reasignacion',
@@ -444,7 +469,7 @@ export async function PATCH(request, context) {
         }
 
         if (estado !== undefined && estado !== prevEstado) {
-            const currentGroupId = await getUserGroupId(db, asignacion?.usuario_id);
+            const currentGroupId = await getAssignmentScopeGroupId(db, id);
             await notifyRoles(
                 db,
                 ['Administrador', 'Lider de Grupo'],
@@ -459,7 +484,7 @@ export async function PATCH(request, context) {
         }
 
         const assignedUserId = Number(asignacion?.usuario_id || prevUsuarioId);
-        const assignedGroupId = await getUserGroupId(db, assignedUserId);
+        const assignedGroupId = await getAssignmentScopeGroupId(db, id);
         publishAssignmentEvent({
             action: 'updated',
             assignment_id: Number(id),
@@ -484,8 +509,6 @@ export async function PATCH(request, context) {
 
         const rankingGroupIds = new Set();
         if (assignedGroupId) rankingGroupIds.add(Number(assignedGroupId));
-        const previousAssignedGroupId = await getUserGroupId(db, prevUsuarioId);
-        if (previousAssignedGroupId) rankingGroupIds.add(Number(previousAssignedGroupId));
         await refreshRankingRealtime(db, {
             groupIds: [...rankingGroupIds],
             notifyPositionChanges: true,
@@ -506,6 +529,7 @@ export async function DELETE(request, { params }) {
         const id = await resolveAsignacionId(params);
         if (!id) return NextResponse.json({ error: 'ID de asignacion invalido' }, { status: 400 });
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
         const auth = await getAuthContext(db);
         if (!auth) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
         if (!auth.isAdmin) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
@@ -518,7 +542,7 @@ export async function DELETE(request, { params }) {
         }
 
         await recalculateProjectProgress(db, asignacionOriginal?.proyecto_id);
-        const assignedGroupId = await getUserGroupId(db, Number(asignacionOriginal?.usuario_id || 0));
+        const assignedGroupId = await getAssignmentScopeGroupId(db, id);
         publishAssignmentEvent({
             action: 'deleted',
             assignment_id: Number(id),
@@ -536,7 +560,7 @@ export async function DELETE(request, { params }) {
                 ts: Date.now(),
             });
         }
-        const originalGroupId = await getUserGroupId(db, Number(asignacionOriginal?.usuario_id || 0));
+        const originalGroupId = assignedGroupId;
         await refreshRankingRealtime(db, {
             groupIds: originalGroupId ? [Number(originalGroupId)] : [],
             notifyPositionChanges: true,

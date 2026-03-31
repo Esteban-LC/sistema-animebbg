@@ -4,6 +4,9 @@ import { getProjectCatalogEntries } from '@/lib/project-catalog';
 import { catalogFromRoleFolderIds } from '@/lib/google-drive';
 import { normalizeCatalogEntries } from '@/lib/project-catalog';
 import { publishProjectEvent } from '@/lib/realtime';
+import { cookies } from 'next/headers';
+
+const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
 
 export const dynamic = 'force-dynamic';
 
@@ -297,6 +300,37 @@ async function ensureCreditosConfigColumn(db) {
     return hasCreditosConfigColumn(db);
 }
 
+async function getSessionPermissions(db) {
+    const token = (await cookies()).get('auth_token')?.value;
+    if (!token) return null;
+
+    const session = await db.prepare(`
+        SELECT s.usuario_id, u.roles, u.grupo_id
+        FROM sessions s
+        JOIN usuarios u ON s.usuario_id = u.id
+        WHERE s.token = ? AND s.expires_at > datetime('now')
+    `).get(token);
+    if (!session) return null;
+
+    let roles = [];
+    try {
+        roles = JSON.parse(session.roles || '[]');
+    } catch {
+        roles = [];
+    }
+
+    const isAdmin = roles.includes('Administrador');
+    const isLeaderOnly = roles.includes('Lider de Grupo');
+
+    return {
+        userId: Number(session.usuario_id),
+        roles,
+        groupId: session.grupo_id ?? null,
+        isAdmin,
+        isLeaderOnly,
+    };
+}
+
 export async function PATCH(request, { params }) {
     try {
         const { id } = await params;
@@ -323,6 +357,18 @@ export async function PATCH(request, { params }) {
         } = body;
 
         const db = getDb();
+        const permissions = await getSessionPermissions(db);
+        if (!permissions) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+        if (!permissions.isAdmin && !permissions.isLeaderOnly) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+        }
+
+        const currentProject = await db.prepare('SELECT id, grupo_id FROM proyectos WHERE id = ?').get(id);
+        if (!currentProject) return NextResponse.json({ error: 'Proyecto no encontrado' }, { status: 404 });
+        if (permissions.isLeaderOnly && Number(currentProject.grupo_id || 0) !== Number(permissions.groupId || 0)) {
+            return NextResponse.json({ error: 'Solo puedes editar proyectos de tu grupo' }, { status: 403 });
+        }
+
         const hasCatalogInPayload = Array.isArray(capitulos_catalogo);
         const hasDriveFolderInPayload = drive_folder_id !== undefined;
         const hasSecondaryRawInPayload = raw_secundario_activo !== undefined;
@@ -404,7 +450,7 @@ export async function PATCH(request, { params }) {
         if (estado !== undefined) { fields.push('estado = ?'); values.push(estado); }
         if (imagen_url !== undefined) { fields.push('imagen_url = ?'); values.push(imagen_url); }
         if (frecuencia !== undefined) { fields.push('frecuencia = ?'); values.push(frecuencia); }
-        if (grupo_id !== undefined) { fields.push('grupo_id = ?'); values.push(grupo_id); }
+        if (grupo_id !== undefined) { fields.push('grupo_id = ?'); values.push(permissions.isLeaderOnly ? Number(permissions.groupId || 0) : grupo_id); }
         if (hasDriveFolderInPayload && driveFolderColumnExists) {
             fields.push('drive_folder_id = ?');
             values.push(String(drive_folder_id || '').trim() || null);
@@ -491,12 +537,17 @@ export async function DELETE(request, { params }) {
     try {
         const { id } = await params;
         const db = getDb();
-        const existing = await db.prepare('SELECT id, grupo_id FROM proyectos WHERE id = ?').get(id);
-        const result = await db.prepare('DELETE FROM proyectos WHERE id = ?').run(id);
-
-        if (result.changes === 0) {
-            return NextResponse.json({ error: 'Proyecto no encontrado' }, { status: 404 });
+        const permissions = await getSessionPermissions(db);
+        if (!permissions) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+        if (!permissions.isAdmin && !permissions.isLeaderOnly) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
         }
+        const existing = await db.prepare('SELECT id, grupo_id FROM proyectos WHERE id = ?').get(id);
+        if (!existing) return NextResponse.json({ error: 'Proyecto no encontrado' }, { status: 404 });
+        if (permissions.isLeaderOnly && Number(existing.grupo_id || 0) !== Number(permissions.groupId || 0)) {
+            return NextResponse.json({ error: 'Solo puedes eliminar proyectos de tu grupo' }, { status: 403 });
+        }
+        const result = await db.prepare('DELETE FROM proyectos WHERE id = ?').run(id);
 
         publishProjectEvent({
             action: 'deleted',

@@ -15,10 +15,12 @@ export default function BottomNav() {
     if (pathname === '/login') return null;
 
     const roles = user?.roles || [];
-  const productionRoles = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
-    const hasProductionRole = roles.some((role) => productionRoles.includes(role));
     const isAdmin = user?.isAdmin || roles.includes('Administrador') || user?.role === 'admin';
-    const isLeaderOnly = (roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo') && !hasProductionRole;
+    const isLeaderOnly = roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo';
+    const profileRoleLabel = isAdmin ? 'Administrador' : isLeaderOnly ? 'Lider de Grupo' : 'Staff';
+    const canViewSuggestions = isAdmin || isLeaderOnly || user?.groupSettings?.showSuggestions !== false;
+    const canViewRanking = isAdmin || isLeaderOnly || user?.groupSettings?.showRanking !== false;
+    const canViewNotifications = isAdmin || isLeaderOnly || user?.groupSettings?.showNotifications !== false;
 
     const isActive = (path: string) => {
         if (path === '/') return pathname === '/';
@@ -57,19 +59,20 @@ export default function BottomNav() {
         ];
     } else if (isLeaderOnly) {
         navItems = [
-            { href: '/staff', icon: 'assignment_ind', label: 'Mis Tareas' },
-            { href: '/series', icon: 'auto_stories', label: 'Series' },
-            { href: '/sugerencias', icon: 'how_to_vote', label: 'Suger.' },
-            { href: '/asignaciones', icon: 'assignment', label: 'Tareas G.' },
-            { href: '/proyectos', icon: 'auto_stories', label: 'Proyectos' }, // Use auto_stories as icon for Projects, matches PC
-            { href: '/usuarios', icon: 'group', label: 'Mi Staff' },
+            { href: '/', icon: 'dashboard', label: 'Inicio' },
+            { href: '/proyectos', icon: 'auto_stories', label: 'Proyectos' },
+            { href: '/asignaciones', icon: 'assignment', label: 'Tareas' },
+            { href: '/usuarios', icon: 'group', label: 'Staff' },
+            { href: '/completados', icon: 'task_alt', label: 'Done' },
             { href: '/historial', icon: 'history', label: 'Historial' },
+            ...(canViewSuggestions ? [{ href: '/sugerencias', icon: 'how_to_vote', label: 'Suger.' }] : []),
+            ...(canViewRanking ? [{ href: '/ranking', icon: 'emoji_events', label: 'Ranking' }] : []),
         ];
     } else {
         navItems = [
             { href: '/staff', icon: 'assignment', label: 'Mis Tareas' },
             { href: '/series', icon: 'auto_stories', label: 'Series' },
-            { href: '/sugerencias', icon: 'how_to_vote', label: 'Suger.' },
+            ...(canViewSuggestions ? [{ href: '/sugerencias', icon: 'how_to_vote', label: 'Suger.' }] : []),
             { href: '/historial', icon: 'history', label: 'Historial' },
         ];
     }
@@ -121,7 +124,7 @@ export default function BottomNav() {
                                     {user?.nombre.substring(0, 2).toUpperCase()}
                                 </div>
                                 <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full border border-surface-dark" />
-                                {unread > 0 && (
+                                {!isLeaderOnly && canViewNotifications && unread > 0 && (
                                     <div className="absolute -top-1 -left-1 min-w-[14px] h-[14px] px-1 rounded-full bg-primary text-white text-[8px] font-bold flex items-center justify-center border border-surface-dark">
                                         {unread > 9 ? '9+' : unread}
                                     </div>
@@ -162,7 +165,7 @@ export default function BottomNav() {
                                     </div>
                                     <div>
                                         <h3 className="font-bold text-white text-lg leading-tight">{user?.nombre}</h3>
-                                        <p className="text-sm text-muted-dark mt-0.5">{user?.role === 'admin' ? 'Admin' : 'Staff'}</p>
+                                        <p className="text-sm text-muted-dark mt-0.5">{profileRoleLabel}</p>
                                     </div>
                                 </div>
                             </div>
@@ -199,25 +202,27 @@ export default function BottomNav() {
                                     <span className="material-icons-round text-gray-600 text-lg">chevron_right</span>
                                 </Link>
 
-                                <Link
-                                    href="/notificaciones"
-                                    onClick={() => setShowProfileMenu(false)}
-                                    className="flex items-center gap-4 px-4 py-3.5 rounded-2xl hover:bg-white/5 transition-colors group"
-                                >
-                                    <div className="w-10 h-10 rounded-full bg-blue-500/15 flex items-center justify-center group-hover:bg-blue-500/25 transition-colors">
-                                        <span className="material-icons-round text-xl text-blue-400">notifications</span>
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-semibold text-white">Notificaciones</p>
-                                        <p className="text-xs text-muted-dark">Avisos y actividad</p>
-                                    </div>
-                                    {unread > 0 && (
-                                        <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold border border-primary/30">
-                                            {unread}
-                                        </span>
-                                    )}
-                                    <span className="material-icons-round text-gray-600 text-lg">chevron_right</span>
-                                </Link>
+                                {!isLeaderOnly && canViewNotifications && (
+                                    <Link
+                                        href="/notificaciones"
+                                        onClick={() => setShowProfileMenu(false)}
+                                        className="flex items-center gap-4 px-4 py-3.5 rounded-2xl hover:bg-white/5 transition-colors group"
+                                    >
+                                        <div className="w-10 h-10 rounded-full bg-blue-500/15 flex items-center justify-center group-hover:bg-blue-500/25 transition-colors">
+                                            <span className="material-icons-round text-xl text-blue-400">notifications</span>
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-sm font-semibold text-white">Notificaciones</p>
+                                            <p className="text-xs text-muted-dark">Avisos y actividad</p>
+                                        </div>
+                                        {unread > 0 && (
+                                            <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold border border-primary/30">
+                                                {unread}
+                                            </span>
+                                        )}
+                                        <span className="material-icons-round text-gray-600 text-lg">chevron_right</span>
+                                    </Link>
+                                )}
                             </div>
 
                             {/* Logout Button - Separated */}

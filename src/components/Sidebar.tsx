@@ -17,10 +17,12 @@ export default function Sidebar() {
     if (!user) return null; // Don't show sidebar if not logged in (handled by layout/middleware usually, but safe guard here)
 
     const roles = user.roles || [];
-    const productionRoles = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
-    const hasProductionRole = roles.some((role) => productionRoles.includes(role));
     const isAdmin = user.isAdmin || roles.includes('Administrador') || user.role === 'admin';
-    const isLeaderOnly = (roles.includes('Lider de Grupo') || user.role === 'Lider de Grupo') && !hasProductionRole;
+    const isLeaderOnly = roles.includes('Lider de Grupo') || user.role === 'Lider de Grupo';
+    const profileRoleLabel = isAdmin ? 'Administrador' : isLeaderOnly ? 'Lider de Grupo' : 'Staff';
+    const canViewSuggestions = isAdmin || isLeaderOnly || user.groupSettings?.showSuggestions !== false;
+    const canViewRanking = isAdmin || isLeaderOnly || user.groupSettings?.showRanking !== false;
+    const canViewNotifications = isAdmin || isLeaderOnly || user.groupSettings?.showNotifications !== false;
 
     // Función para determinar si un link está activo
     const isActive = (path: string) => {
@@ -73,7 +75,7 @@ export default function Sidebar() {
                     </div>
 
                     <nav className="p-4 space-y-2 select-none">
-                        {isAdmin ? (
+                        {isAdmin || isLeaderOnly ? (
                             <>
                                 {/* Admin Menu */}
                                 <div className="text-xs font-bold text-muted-dark uppercase tracking-wider px-4 py-2">
@@ -137,7 +139,7 @@ export default function Sidebar() {
                                     )}
                                     <span className={`material-icons-round transition-all duration-300 ${isActive('/usuarios') ? 'text-primary scale-110' : 'group-hover:scale-110'
                                         }`}>group</span>
-                                    <span className="font-semibold">Staff</span>
+                                    <span className="font-semibold">{isLeaderOnly && !isAdmin ? 'Mi Staff' : 'Staff'}</span>
                                 </Link>
                                 <Link
                                     href="/historial"
@@ -154,52 +156,58 @@ export default function Sidebar() {
                                         }`}>history</span>
                                     <span className="font-semibold">Historial</span>
                                 </Link>
-                                <Link
-                                    href="/sugerencias"
-                                    onClick={close}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 group relative overflow-hidden ${isActive('/sugerencias')
-                                        ? 'bg-gradient-to-r from-primary/20 to-primary/10 text-primary shadow-glow shadow-primary/20'
-                                        : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
-                                        }`}
-                                >
-                                    {isActive('/sugerencias') && (
-                                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full shadow-glow shadow-primary/50"></div>
-                                    )}
-                                    <span className={`material-icons-round transition-all duration-300 ${isActive('/sugerencias') ? 'text-primary scale-110' : 'group-hover:scale-110'
-                                        }`}>how_to_vote</span>
-                                    <span className="font-semibold">Sugerencias</span>
-                                </Link>
-                                <Link
-                                    href="/ranking"
-                                    onClick={close}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 group relative overflow-hidden ${isActive('/ranking')
-                                        ? 'bg-gradient-to-r from-primary/20 to-primary/10 text-primary shadow-glow shadow-primary/20'
-                                        : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
-                                        }`}
-                                >
-                                    {isActive('/ranking') && (
-                                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full shadow-glow shadow-primary/50"></div>
-                                    )}
-                                    <span className={`material-icons-round transition-all duration-300 ${isActive('/ranking') ? 'text-primary scale-110' : 'group-hover:scale-110'
-                                        }`}>emoji_events</span>
-                                    <span className="font-semibold">Ranking</span>
-                                </Link>
-                                <Link
-                                    href="/notificaciones"
-                                    onClick={close}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 group relative overflow-hidden ${isActive('/notificaciones')
-                                        ? 'bg-gradient-to-r from-primary/20 to-primary/10 text-primary shadow-glow shadow-primary/20'
-                                        : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
-                                        }`}
-                                >
-                                    {isActive('/notificaciones') && (
-                                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full shadow-glow shadow-primary/50"></div>
-                                    )}
-                                    <span className={`material-icons-round transition-all duration-300 ${isActive('/notificaciones') ? 'text-primary scale-110' : 'group-hover:scale-110'
-                                        }`}>notifications</span>
-                                    <span className="font-semibold">Notificaciones</span>
-                                    {notificationsBadge}
-                                </Link>
+                                {canViewSuggestions && (
+                                    <Link
+                                        href="/sugerencias"
+                                        onClick={close}
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 group relative overflow-hidden ${isActive('/sugerencias')
+                                            ? 'bg-gradient-to-r from-primary/20 to-primary/10 text-primary shadow-glow shadow-primary/20'
+                                            : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
+                                            }`}
+                                    >
+                                        {isActive('/sugerencias') && (
+                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full shadow-glow shadow-primary/50"></div>
+                                        )}
+                                        <span className={`material-icons-round transition-all duration-300 ${isActive('/sugerencias') ? 'text-primary scale-110' : 'group-hover:scale-110'
+                                            }`}>how_to_vote</span>
+                                        <span className="font-semibold">Sugerencias</span>
+                                    </Link>
+                                )}
+                                {canViewRanking && (
+                                    <Link
+                                        href="/ranking"
+                                        onClick={close}
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 group relative overflow-hidden ${isActive('/ranking')
+                                            ? 'bg-gradient-to-r from-primary/20 to-primary/10 text-primary shadow-glow shadow-primary/20'
+                                            : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
+                                            }`}
+                                    >
+                                        {isActive('/ranking') && (
+                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full shadow-glow shadow-primary/50"></div>
+                                        )}
+                                        <span className={`material-icons-round transition-all duration-300 ${isActive('/ranking') ? 'text-primary scale-110' : 'group-hover:scale-110'
+                                            }`}>emoji_events</span>
+                                        <span className="font-semibold">Ranking</span>
+                                    </Link>
+                                )}
+                                {isAdmin && (
+                                    <Link
+                                        href="/notificaciones"
+                                        onClick={close}
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300 group relative overflow-hidden ${isActive('/notificaciones')
+                                            ? 'bg-gradient-to-r from-primary/20 to-primary/10 text-primary shadow-glow shadow-primary/20'
+                                            : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
+                                            }`}
+                                    >
+                                        {isActive('/notificaciones') && (
+                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary rounded-r-full shadow-glow shadow-primary/50"></div>
+                                        )}
+                                        <span className={`material-icons-round transition-all duration-300 ${isActive('/notificaciones') ? 'text-primary scale-110' : 'group-hover:scale-110'
+                                            }`}>notifications</span>
+                                        <span className="font-semibold">Notificaciones</span>
+                                        {notificationsBadge}
+                                    </Link>
+                                )}
                                 <Link
                                     href="/completados"
                                     onClick={close}
@@ -214,6 +222,47 @@ export default function Sidebar() {
                                     <span className={`material-icons-round transition-all duration-300 ${isActive('/completados') ? 'text-primary scale-110' : 'group-hover:scale-110'
                                         }`}>task_alt</span>
                                     <span className="font-semibold">Completados</span>
+                                </Link>
+                            </>
+                        ) : isLeaderOnly ? (
+                            <>
+                                <div className="text-xs font-bold text-muted-dark uppercase tracking-wider px-4 py-2">
+                                    Gestion Grupo
+                                </div>
+                                <Link href="/" onClick={close} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/') ? 'bg-primary/10 text-primary' : 'text-muted-dark hover:bg-surface-darker hover:text-primary'}`}>
+                                    <span className="material-icons-round">dashboard</span>
+                                    <span>Dashboard</span>
+                                </Link>
+                                <Link href="/proyectos" onClick={close} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/proyectos') ? 'bg-primary/10 text-primary' : 'text-muted-dark hover:bg-surface-darker hover:text-primary'}`}>
+                                    <span className="material-icons-round">library_books</span>
+                                    <span>Proyectos</span>
+                                </Link>
+                                <Link href="/asignaciones" onClick={close} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/asignaciones') ? 'bg-primary/10 text-primary' : 'text-muted-dark hover:bg-surface-darker hover:text-primary'}`}>
+                                    <span className="material-icons-round">assignment</span>
+                                    <span>Asignaciones</span>
+                                </Link>
+                                <Link href="/usuarios" onClick={close} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/usuarios') ? 'bg-primary/10 text-primary' : 'text-muted-dark hover:bg-surface-darker hover:text-primary'}`}>
+                                    <span className="material-icons-round">group</span>
+                                    <span>Mi Staff</span>
+                                </Link>
+                                <div className="text-xs font-bold text-muted-dark uppercase tracking-wider px-4 py-2 mt-2">
+                                    General
+                                </div>
+                                <Link href="/series" onClick={close} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/series') ? 'bg-primary/10 text-primary' : 'text-muted-dark hover:bg-surface-darker hover:text-primary'}`}>
+                                    <span className="material-icons-round">auto_stories</span>
+                                    <span>Series</span>
+                                </Link>
+                                <Link href="/historial" onClick={close} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/historial') ? 'bg-primary/10 text-primary' : 'text-muted-dark hover:bg-surface-darker hover:text-primary'}`}>
+                                    <span className="material-icons-round">history</span>
+                                    <span>Historial</span>
+                                </Link>
+                                <Link href="/sugerencias" onClick={close} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/sugerencias') ? 'bg-primary/10 text-primary' : 'text-muted-dark hover:bg-surface-darker hover:text-primary'}`}>
+                                    <span className="material-icons-round">how_to_vote</span>
+                                    <span>Sugerencias</span>
+                                </Link>
+                                <Link href="/ranking" onClick={close} className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/ranking') ? 'bg-primary/10 text-primary' : 'text-muted-dark hover:bg-surface-darker hover:text-primary'}`}>
+                                    <span className="material-icons-round">emoji_events</span>
+                                    <span>Ranking</span>
                                 </Link>
                             </>
                         ) : (
@@ -323,18 +372,6 @@ export default function Sidebar() {
                                     <span className="material-icons-round">emoji_events</span>
                                     <span>Ranking</span>
                                 </Link>
-                                <Link
-                                    href="/notificaciones"
-                                    onClick={close}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/notificaciones')
-                                        ? 'bg-primary/10 text-primary'
-                                        : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
-                                        }`}
-                                >
-                                    <span className="material-icons-round">notifications</span>
-                                    <span>Notificaciones</span>
-                                    {notificationsBadge}
-                                </Link>
                             </>
                         )}
                     </nav>
@@ -355,7 +392,7 @@ export default function Sidebar() {
                             <h4 className="font-bold text-sm truncate text-white group-hover:text-primary transition-colors">{user.nombre}</h4>
                             <p className="text-xs text-muted-dark truncate flex items-center gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>
-                                {user.role === 'admin' ? 'Administrador' : 'Staff'}
+                                {profileRoleLabel}
                             </p>
                         </div>
                         <span className={`material-icons-round text-gray-500 transition-all duration-300 ${showProfileMenu ? 'rotate-180 text-primary' : 'group-hover:text-primary'}`}>
@@ -388,6 +425,20 @@ export default function Sidebar() {
                                 <span className="material-icons-round text-xl text-gray-300">settings</span>
                                 <span className="text-sm font-medium">Configuracion</span>
                             </Link>
+                            {!isLeaderOnly && canViewNotifications && (
+                                <Link
+                                    href="/notificaciones"
+                                    onClick={() => {
+                                        setShowProfileMenu(false);
+                                        close();
+                                    }}
+                                    className="flex items-center gap-3 px-4 py-3 hover:bg-surface-darker transition-colors text-white border-t border-gray-800"
+                                >
+                                    <span className="material-icons-round text-xl text-blue-300">notifications</span>
+                                    <span className="text-sm font-medium">Notificaciones</span>
+                                    {notificationsBadge}
+                                </Link>
+                            )}
                             <button
                                 onClick={() => {
                                     setShowProfileMenu(false);

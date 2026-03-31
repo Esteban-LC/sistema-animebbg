@@ -123,6 +123,8 @@ function formatDisplayDate(dateStr: string): string {
 export default function RankingPage() {
     const { user } = useUser();
     const { showToast } = useToast();
+    const roles = user?.roles || [];
+    const canManageGroupVisibility = Boolean(user?.grupo_id && (user?.isAdmin || roles.includes('Administrador') || roles.includes('Lider de Grupo')));
     const [canConfigure, setCanConfigure] = useState(false);
     const [duration, setDuration] = useState<DurationMode>('custom');
     const [startDate, setStartDate] = useState<string>('');
@@ -150,6 +152,17 @@ export default function RankingPage() {
     const [modalLoading, setModalLoading] = useState(false);
     const [modalSeason, setModalSeason] = useState<{ start: string; end: string } | null>(null);
     const [modalEntries, setModalEntries] = useState<HistoryEntry[]>([]);
+    const isLeader = roles.includes('Lider de Grupo');
+    const groupRankingVisible = user?.groupSettings?.showRanking !== false;
+    const canViewRanking = Boolean(user?.isAdmin || roles.includes('Administrador') || isLeader || groupRankingVisible);
+
+    if (user && !canViewRanking && !canManageGroupVisibility) {
+        return (
+            <div className="flex-1 flex items-center justify-center bg-background-dark text-muted-dark p-6">
+                El ranking esta oculto para este grupo.
+            </div>
+        );
+    }
 
     const topThree = useMemo(() => ranking.slice(0, 3), [ranking]);
     const tableEntries = useMemo(() => ranking.slice(3), [ranking]);
@@ -300,6 +313,28 @@ export default function RankingPage() {
         }
     };
 
+    const handleSetGroupVisibility = async (hidden: boolean) => {
+        setSaving(true);
+        try {
+            const res = await fetch('/api/ranking', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'set_visibility_group', hidden }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                showToast(data?.error || 'No se pudo actualizar la visibilidad del grupo.', 'error');
+                return;
+            }
+            showToast(hidden ? 'Ranking oculto para el staff de este grupo.' : 'Ranking visible para el staff de este grupo.', 'success');
+            window.location.reload();
+        } catch {
+            showToast('Error de red al actualizar visibilidad del grupo.', 'error');
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const handleFinalize = async () => {
         setSaving(true);
         try {
@@ -421,9 +456,10 @@ export default function RankingPage() {
                                 </div>
                             </div>
 
-                            {canConfigure && (
+                            {(canConfigure || canManageGroupVisibility) && (
                                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-4">
-                                    <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
+                                    {canConfigure && (
+                                        <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
                                         <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Duracion</span>
                                         <select
                                             value={duration}
@@ -435,9 +471,11 @@ export default function RankingPage() {
                                             <option value="30d">30 dias</option>
                                             <option value="custom">Personalizado</option>
                                         </select>
-                                    </label>
+                                        </label>
+                                    )}
 
-                                    <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
+                                    {canConfigure && (
+                                        <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
                                         <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Inicio</span>
                                         <input
                                             type="date"
@@ -457,9 +495,11 @@ export default function RankingPage() {
                                             }}
                                             className="mt-1 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
                                         />
-                                    </label>
+                                        </label>
+                                    )}
 
-                                    <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
+                                    {canConfigure && (
+                                        <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
                                         <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Fin</span>
                                         <input
                                             type="date"
@@ -479,43 +519,67 @@ export default function RankingPage() {
                                             }}
                                             className="mt-1 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
                                         />
-                                    </label>
+                                        </label>
+                                    )}
 
                                     <div className="bg-black/20 border border-gray-700 rounded-xl p-3 flex flex-col justify-center">
-                                        <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Control admin</span>
+                                        <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">
+                                            {canConfigure ? 'Control admin' : 'Control de grupo'}
+                                        </span>
                                         <div className="mt-2 flex gap-2">
-                                            <button
-                                                onClick={handlePreview}
-                                                disabled={loading || !startDate || !endDate}
-                                                className="px-3 py-2 rounded-lg text-xs font-bold bg-surface-darker border border-gray-600 text-white disabled:opacity-50"
-                                            >
-                                                Ver
-                                            </button>
-                                            <button
-                                                onClick={handleSave}
-                                                disabled={saving || !startDate || !endDate}
-                                                className="px-3 py-2 rounded-lg text-xs font-bold bg-primary text-white disabled:opacity-50"
-                                            >
-                                                {saving ? 'Guardando...' : 'Guardar'}
-                                            </button>
+                                            {canConfigure && (
+                                                <>
+                                                    <button
+                                                        onClick={handlePreview}
+                                                        disabled={loading || !startDate || !endDate}
+                                                        className="px-3 py-2 rounded-lg text-xs font-bold bg-surface-darker border border-gray-600 text-white disabled:opacity-50"
+                                                    >
+                                                        Ver
+                                                    </button>
+                                                    <button
+                                                        onClick={handleSave}
+                                                        disabled={saving || !startDate || !endDate}
+                                                        className="px-3 py-2 rounded-lg text-xs font-bold bg-primary text-white disabled:opacity-50"
+                                                    >
+                                                        {saving ? 'Guardando...' : 'Guardar'}
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
                                         <div className="mt-2 flex gap-2">
-                                            <button
-                                                onClick={() => handleSetVisibility(!rankingHidden)}
-                                                disabled={saving}
-                                                className="px-3 py-2 rounded-lg text-xs font-bold bg-surface-darker border border-gray-600 text-white disabled:opacity-50"
-                                            >
-                                                {rankingHidden ? 'Mostrar' : 'Ocultar'}
-                                            </button>
-                                            <button
-                                                onClick={handleFinalize}
-                                                disabled={saving || forceFinalized}
-                                                className="px-3 py-2 rounded-lg text-xs font-bold bg-amber-600 text-white disabled:opacity-50"
-                                            >
-                                                {forceFinalized ? 'Finalizado' : 'Finalizar'}
-                                            </button>
+                                            {canManageGroupVisibility && (
+                                                <button
+                                                    onClick={() => handleSetGroupVisibility(groupRankingVisible)}
+                                                    disabled={saving}
+                                                    className="px-3 py-2 rounded-lg text-xs font-bold bg-surface-darker border border-gray-600 text-white disabled:opacity-50"
+                                                >
+                                                    {groupRankingVisible ? 'Ocultar para este grupo' : 'Mostrar para este grupo'}
+                                                </button>
+                                            )}
+                                            {canConfigure && (
+                                                <>
+                                                    <button
+                                                        onClick={() => handleSetVisibility(!rankingHidden)}
+                                                        disabled={saving}
+                                                        className="px-3 py-2 rounded-lg text-xs font-bold bg-surface-darker border border-gray-600 text-white disabled:opacity-50"
+                                                    >
+                                                        {rankingHidden ? 'Mostrar global' : 'Ocultar global'}
+                                                    </button>
+                                                    <button
+                                                        onClick={handleFinalize}
+                                                        disabled={saving || forceFinalized}
+                                                        className="px-3 py-2 rounded-lg text-xs font-bold bg-amber-600 text-white disabled:opacity-50"
+                                                    >
+                                                        {forceFinalized ? 'Finalizado' : 'Finalizar'}
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
-                                        <p className="text-xs text-muted-dark mt-2">Solo admin puede cambiar el periodo oficial.</p>
+                                        <p className="text-xs text-muted-dark mt-2">
+                                            {canConfigure
+                                                ? 'El admin puede cambiar el periodo oficial y la visibilidad global.'
+                                                : 'Puedes ocultar o mostrar el ranking solo para el staff de tu grupo.'}
+                                        </p>
                                     </div>
                                 </div>
                             )}
@@ -900,6 +964,3 @@ export default function RankingPage() {
         </div>
     );
 }
-
-
-

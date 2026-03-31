@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { ensurePerformanceIndexes, getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, ensurePerformanceIndexes, getDb } from '@/lib/db';
 import { ensureNotificationsTable } from '@/lib/notifications';
 
 async function getSessionUser(db) {
@@ -47,8 +47,9 @@ async function getAssignmentGroupMap(db, asignacionIds) {
 
     const placeholders = asignacionIds.map(() => '?').join(', ');
     const rows = await db.prepare(`
-        SELECT a.id as asignacion_id, u.grupo_id
+        SELECT a.id as asignacion_id, COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) as grupo_id
         FROM asignaciones a
+        LEFT JOIN proyectos p ON p.id = a.proyecto_id
         LEFT JOIN usuarios u ON u.id = a.usuario_id
         WHERE a.id IN (${placeholders})
     `).all(...asignacionIds);
@@ -77,6 +78,7 @@ export async function GET(request) {
     try {
         const db = getDb();
         await ensurePerformanceIndexes(db);
+        await ensureAssignmentGroupSnapshotSchema(db);
         const sessionUser = await getSessionUser(db);
         if (!sessionUser) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 });

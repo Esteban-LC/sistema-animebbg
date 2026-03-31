@@ -3,8 +3,18 @@
 import { useEffect, useState } from 'react';
 import { useNotifications } from '@/context/NotificationsContext';
 import { useToast } from '@/context/ToastContext';
+import { useUser } from '@/context/UserContext';
+
+interface GrupoConfig {
+    id: number;
+    nombre: string;
+    mostrar_sugerencias?: number;
+    mostrar_ranking?: number;
+    mostrar_notificaciones?: number;
+}
 
 export default function ConfiguracionPage() {
+    const { user } = useUser();
     const { soundEnabled, setSoundEnabled } = useNotifications();
     const { showToast } = useToast();
     const [config, setConfig] = useState({
@@ -17,6 +27,9 @@ export default function ConfiguracionPage() {
     const [pushPublicKey, setPushPublicKey] = useState('');
     const [pushLoading, setPushLoading] = useState(false);
     const [pushTesting, setPushTesting] = useState(false);
+    const [grupos, setGrupos] = useState<GrupoConfig[]>([]);
+    const [savingGroupId, setSavingGroupId] = useState<number | null>(null);
+    const isAdmin = Boolean(user?.isAdmin || user?.roles?.includes('Administrador'));
 
     useEffect(() => {
         const isCapacitor = typeof window !== 'undefined' && !!(window as any).Capacitor;
@@ -50,6 +63,18 @@ export default function ConfiguracionPage() {
 
         boot();
     }, []);
+
+    useEffect(() => {
+        if (!isAdmin) return;
+        fetch('/api/grupos', { cache: 'no-store' })
+            .then((res) => res.json())
+            .then((data) => {
+                setGrupos(Array.isArray(data) ? data : []);
+            })
+            .catch(() => {
+                setGrupos([]);
+            });
+    }, [isAdmin]);
 
     const base64ToUint8Array = (base64: string) => {
         const padding = '='.repeat((4 - (base64.length % 4)) % 4);
@@ -186,6 +211,36 @@ export default function ConfiguracionPage() {
         }
     };
 
+    const updateGrupoVisibility = async (
+        grupoId: number,
+        field: 'mostrar_sugerencias' | 'mostrar_ranking' | 'mostrar_notificaciones',
+        value: boolean
+    ) => {
+        setSavingGroupId(grupoId);
+        try {
+            const res = await fetch('/api/grupos', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: grupoId, [field]: value }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data?.error || 'No se pudo actualizar la visibilidad');
+            }
+
+            setGrupos((prev) => prev.map((grupo) => (
+                grupo.id === grupoId
+                    ? { ...grupo, [field]: value ? 1 : 0 }
+                    : grupo
+            )));
+            showToast('Visibilidad del grupo actualizada.', 'success');
+        } catch (error) {
+            showToast(error instanceof Error ? error.message : 'Error actualizando grupo.', 'error');
+        } finally {
+            setSavingGroupId(null);
+        }
+    };
+
     return (
         <div className="flex-1 flex flex-col h-full bg-background-dark overflow-hidden">
             {/* Header */}
@@ -307,6 +362,47 @@ export default function ConfiguracionPage() {
                             </>)}
                         </div>
                     </div>
+
+                    {isAdmin && (
+                        <div className="bg-surface-dark p-6 rounded-xl border border-gray-800 shadow-lg">
+                            <h3 className="font-display font-bold text-xl text-white mb-6 flex items-center gap-2">
+                                <span className="material-icons-round text-primary">groups</span>
+                                Visibilidad Por Grupo
+                            </h3>
+                            <div className="space-y-4">
+                                {grupos.map((grupo) => (
+                                    <div key={grupo.id} className="p-4 bg-background-dark rounded-lg border border-gray-800">
+                                        <div className="flex items-center justify-between gap-4 mb-4">
+                                            <div>
+                                                <h4 className="text-white font-medium">{grupo.nombre}</h4>
+                                                <p className="text-sm text-muted-dark">Controla quÃ© apartados ve este grupo.</p>
+                                            </div>
+                                            {savingGroupId === grupo.id && (
+                                                <span className="text-xs text-primary font-semibold">Guardando...</span>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            {[
+                                                { key: 'mostrar_sugerencias' as const, label: 'Sugerencias' },
+                                                { key: 'mostrar_ranking' as const, label: 'Ranking' },
+                                                { key: 'mostrar_notificaciones' as const, label: 'Notificaciones' },
+                                            ].map((item) => (
+                                                <label key={item.key} className="flex items-center justify-between p-3 rounded-lg border border-gray-800 bg-surface-dark">
+                                                    <span className="text-sm text-white">{item.label}</span>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={Number(grupo[item.key] ?? 1) === 1}
+                                                        onChange={(e) => updateGrupoVisibility(grupo.id, item.key, e.target.checked)}
+                                                        className="h-4 w-4 accent-red-500"
+                                                    />
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Guardar */}
                     <div className="flex gap-4">

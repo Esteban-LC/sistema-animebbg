@@ -1,4 +1,4 @@
-import { ensurePerformanceIndexes, getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, ensurePerformanceIndexes, getDb } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createNotification, notifyRoles } from '@/lib/notifications';
@@ -142,6 +142,12 @@ async function hasTyperPrerequisites(db, proyectoId, capitulo) {
     };
 }
 
+async function getProjectGroupId(db, projectId) {
+    if (!projectId) return null;
+    const row = await db.prepare('SELECT grupo_id FROM proyectos WHERE id = ?').get(projectId);
+    return row?.grupo_id ?? null;
+}
+
 async function hasCatalogColumn(db) {
     try {
         const tableInfo = await db.prepare(`PRAGMA table_info(proyectos)`).all();
@@ -200,6 +206,7 @@ export async function GET() {
 
         const db = getDb();
         await ensurePerformanceIndexes(db);
+        await ensureAssignmentGroupSnapshotSchema(db);
 
         const session = await db.prepare("SELECT * FROM sessions WHERE token = ? AND expires_at > datetime('now')").get(token.value);
         if (!session) {
@@ -216,8 +223,7 @@ export async function GET() {
         }
 
         const isAdmin = roles.includes('Administrador');
-        const hasProductionRole = roles.some((roleName) => PRODUCTION_ROLES.includes(roleName));
-        const isLeader = roles.includes('Lider de Grupo') && !hasProductionRole;
+        const isLeader = roles.includes('Lider de Grupo');
         const userGroupId = user?.grupo_id || null;
 
         const cacheKey = [
@@ -243,8 +249,9 @@ export async function GET() {
                     query += ' WHERE a.usuario_id = ? ';
                     params.push(session.usuario_id);
                 } else {
-                    query += ' WHERE (u.grupo_id = ? OR a.usuario_id = ?) ';
-                    params.push(userGroupId, session.usuario_id);
+                    // Leader views are scoped to the leader's current group only.
+                    query += ' WHERE COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ? ';
+                    params.push(userGroupId);
                 }
             } else {
                 query += ' WHERE a.usuario_id = ? ';
@@ -267,6 +274,7 @@ export async function POST(request) {
         const { usuario_id, rol, descripcion, proyecto_id, capitulo, traductor_tipo } = await request.json();
         const db = getDb();
         await ensurePerformanceIndexes(db);
+        await ensureAssignmentGroupSnapshotSchema(db);
         const traductorTipoColumnExists = await ensureTraductorTipoColumn(db);
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
@@ -294,8 +302,7 @@ export async function POST(request) {
         }
 
         const isAdmin = requesterRoles.includes('Administrador');
-        const requesterHasProductionRole = requesterRoles.some((roleName) => PRODUCTION_ROLES.includes(roleName));
-        const isLeader = requesterRoles.includes('Lider de Grupo') && !requesterHasProductionRole;
+        const isLeader = requesterRoles.includes('Lider de Grupo');
         const isSelfAssign = Number(usuario_id) === Number(session.usuario_id);
 
         if (!isAdmin && !isLeader && !isSelfAssign) {
@@ -308,7 +315,7 @@ export async function POST(request) {
             return NextResponse.json({ error: 'usuario_id, rol y descripcion son requeridos' }, { status: 400 });
         }
 
-        const assignee = await db.prepare('SELECT roles FROM usuarios WHERE id = ?').get(usuario_id);
+        const assignee = await db.prepare('SELECT roles, grupo_id FROM usuarios WHERE id = ?').get(usuario_id);
         if (!assignee) {
             return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
         }
@@ -345,13 +352,14 @@ export async function POST(request) {
         }
 
         let driveUrlFromCatalog = null;
+        let assignmentGroupId = null;
 
         if (proyecto_id && capitulo !== null && capitulo !== undefined) {
             const catalogColumnExists = await hasCatalogColumn(db);
             const driveFolderColumnExists = await hasDriveFolderColumn(db);
             const secondaryRawColumnExists = await hasSecondaryRawColumn(db);
             const proyecto = await db.prepare(`
-                SELECT estado, tipo, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
+                SELECT estado, tipo, grupo_id, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
                        ${driveFolderColumnExists ? 'drive_folder_id' : 'NULL as drive_folder_id'}, id
                 FROM proyectos WHERE id = ?
             `).get(proyecto_id);
@@ -456,13 +464,18 @@ export async function POST(request) {
                 }, { status: 400 });
             }
             driveUrlFromCatalog = roleDeliveryUrlFromCatalog;
+            assignmentGroupId = proyecto?.grupo_id ?? null;
+        }
+
+        if (assignmentGroupId === null || assignmentGroupId === undefined) {
+            assignmentGroupId = assignee?.grupo_id ?? null;
         }
 
         let result;
         if (traductorTipoColumnExists) {
             result = await db.prepare(`
-                INSERT INTO asignaciones (usuario_id, rol, traductor_tipo, descripcion, proyecto_id, capitulo, drive_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO asignaciones (usuario_id, rol, traductor_tipo, descripcion, proyecto_id, capitulo, drive_url, grupo_id_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
                 usuario_id,
                 rol,
@@ -470,19 +483,21 @@ export async function POST(request) {
                 descripcion,
                 proyecto_id || null,
                 capitulo || null,
-                driveUrlFromCatalog
+                driveUrlFromCatalog,
+                assignmentGroupId
             );
         } else {
             result = await db.prepare(`
-                INSERT INTO asignaciones (usuario_id, rol, descripcion, proyecto_id, capitulo, drive_url)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO asignaciones (usuario_id, rol, descripcion, proyecto_id, capitulo, drive_url, grupo_id_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             `).run(
                 usuario_id,
                 rol,
                 descripcion,
                 proyecto_id || null,
                 capitulo || null,
-                driveUrlFromCatalog
+                driveUrlFromCatalog,
+                assignmentGroupId
             );
         }
 
@@ -496,8 +511,7 @@ export async function POST(request) {
             JOIN usuarios u ON a.usuario_id = u.id
             WHERE a.id = ?
         `).get(result.lastInsertRowid);
-        const targetUser = await db.prepare('SELECT grupo_id FROM usuarios WHERE id = ?').get(usuario_id);
-        const targetGroupId = targetUser?.grupo_id ?? null;
+        const targetGroupId = assignmentGroupId ?? await getProjectGroupId(db, proyecto_id) ?? null;
 
         const actor = await db.prepare('SELECT nombre FROM usuarios WHERE id = ?').get(session.usuario_id);
         const actorName = actor?.nombre || 'Sistema';
@@ -514,7 +528,7 @@ export async function POST(request) {
 
         await notifyRoles(
             db,
-            ['Administrador', 'Lider de Grupo'],
+            ['Administrador'],
             {
                 tipo: 'asignacion_evento',
                 titulo: 'Asignacion creada',

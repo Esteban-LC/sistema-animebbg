@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 
 import { cookies } from 'next/headers';
 
+const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
+
 function normalizeRoles(rawRoles) {
     const list = Array.isArray(rawRoles) ? rawRoles : [];
     return list.map((role) => role === 'Traductor KO/JAP' ? 'Traductor KO' : role);
@@ -129,6 +131,28 @@ export async function POST(request) {
         const { nombre, discord_username, roles, grupo_id, tag, nombre_creditos } = await request.json();
         const db = getDb();
         await ensureUsuariosCreditosColumns(db);
+        const token = (await cookies()).get('auth_token')?.value;
+        if (!token) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+        const session = await db.prepare(`
+            SELECT s.usuario_id, u.roles, u.grupo_id
+            FROM sessions s
+            JOIN usuarios u ON u.id = s.usuario_id
+            WHERE s.token = ? AND s.expires_at > datetime('now')
+        `).get(token);
+        if (!session) return NextResponse.json({ error: 'Sesion invalida o expirada' }, { status: 401 });
+
+        let requesterRoles = [];
+        try {
+            requesterRoles = JSON.parse(session.roles || '[]');
+        } catch {
+            requesterRoles = [];
+        }
+
+        const isAdmin = requesterRoles.includes('Administrador');
+        if (!isAdmin) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+        }
 
         const normalizedTag = normalizeTag(tag || discord_username || nombre);
         if (!normalizedTag) {
@@ -147,13 +171,17 @@ export async function POST(request) {
 
         // Default password for new users: 123456
         // Default to Group 1 if not specified
+        const allowedRoles = normalizeRoles(roles || ['Staff']);
         const finalGrupoId = grupo_id || 1;
+        if (!finalGrupoId) {
+            return NextResponse.json({ error: 'Grupo invalido' }, { status: 400 });
+        }
 
         const creditsName = String(nombre_creditos || '').trim() || String(nombre || '').trim();
         const result = await stmt.run(
             nombre,
             discord_username || null,
-            JSON.stringify(roles || ['Staff']),
+            JSON.stringify(allowedRoles),
             finalGrupoId,
             '123456',
             normalizedTag,
@@ -164,7 +192,7 @@ export async function POST(request) {
             id: result.lastInsertRowid,
             nombre,
             discord_username,
-            roles: roles || ['Staff'],
+            roles: allowedRoles,
             grupo_id: finalGrupoId,
             tag: normalizedTag,
             nombre_creditos: creditsName,

@@ -1,4 +1,4 @@
-import { ensurePerformanceIndexes, getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, ensurePerformanceIndexes, getDb } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getOfficialRankingRange } from '@/lib/ranking';
@@ -28,6 +28,7 @@ export async function GET(request) {
 
         const db = getDb();
         await ensurePerformanceIndexes(db);
+        await ensureAssignmentGroupSnapshotSchema(db);
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
 
@@ -43,8 +44,7 @@ export async function GET(request) {
         const user = await db.prepare('SELECT roles, grupo_id FROM usuarios WHERE id = ?').get(session.usuario_id);
         const roles = user && user.roles ? JSON.parse(user.roles) : [];
         const isAdmin = roles.includes('Administrador');
-        const hasProductionRole = roles.some((roleName) => PRODUCTION_ROLES.includes(roleName));
-        const isLeader = roles.includes('Lider de Grupo') && !hasProductionRole;
+        const isLeader = roles.includes('Lider de Grupo');
         const groupId = user ? user.grupo_id : null;
         const usePeriodScope = scope === 'period' || scope === 'monthly';
 
@@ -90,6 +90,7 @@ export async function GET(request) {
                     SUM(CASE WHEN rol = 'Typer' THEN 1 ELSE 0 END) as typeo
                 FROM asignaciones a
                 JOIN usuarios u ON a.usuario_id = u.id
+                LEFT JOIN proyectos p ON a.proyecto_id = p.id
             `;
 
             const params = [];
@@ -97,7 +98,7 @@ export async function GET(request) {
             if (isAdmin) {
                 // Admin sees all
             } else if (isLeader && groupId) {
-                query += ' WHERE u.grupo_id = ?';
+                query += ' WHERE COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?';
                 params.push(groupId);
             } else {
                 query += ' WHERE a.usuario_id = ?';
@@ -123,11 +124,12 @@ export async function GET(request) {
                         SUM(CASE WHEN estado = 'Completado' THEN 1 ELSE 0 END) as completadas_historico
                     FROM asignaciones a
                     JOIN usuarios u ON a.usuario_id = u.id
+                    LEFT JOIN proyectos p ON a.proyecto_id = p.id
                 `;
                 const historicalParams = [];
 
                 if (isLeader && groupId) {
-                    historicalQuery += ' WHERE u.grupo_id = ?';
+                    historicalQuery += ' WHERE COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?';
                     historicalParams.push(groupId);
                 } else {
                     historicalQuery += ' WHERE a.usuario_id = ?';

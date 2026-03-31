@@ -1,16 +1,14 @@
-import { getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, getDb } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createNotification, notifyRoles } from '@/lib/notifications';
-
-const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
 
 async function getAuthContext(db) {
     const token = (await cookies()).get('auth_token')?.value;
     if (!token) return null;
 
     const session = await db.prepare(`
-        SELECT s.usuario_id, u.roles, u.nombre
+        SELECT s.usuario_id, u.roles, u.nombre, u.grupo_id
         FROM sessions s
         JOIN usuarios u ON u.id = s.usuario_id
         WHERE s.token = ? AND s.expires_at > datetime('now')
@@ -29,8 +27,23 @@ async function getAuthContext(db) {
         name: session.nombre || 'Usuario',
         roles,
         isAdmin: roles.includes('Administrador'),
-        isLeader: roles.includes('Lider de Grupo') && !roles.some((roleName) => PRODUCTION_ROLES.includes(roleName)),
+        isLeader: roles.includes('Lider de Grupo'),
+        groupId: session?.grupo_id ?? null,
     };
+}
+
+async function getAssignmentAuthScope(db, id) {
+    return db.prepare(`
+        SELECT
+            a.id,
+            a.usuario_id,
+            COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) AS grupo_id
+        FROM asignaciones a
+        LEFT JOIN proyectos p ON p.id = a.proyecto_id
+        LEFT JOIN usuarios u ON u.id = a.usuario_id
+        WHERE a.id = ?
+        LIMIT 1
+    `).get(id);
 }
 
 async function resolveAsignacionId(paramsSource) {
@@ -45,8 +58,17 @@ export async function GET(request, { params }) {
         const id = await resolveAsignacionId(params);
         if (!id) return NextResponse.json({ error: 'ID de asignacion invalido' }, { status: 400 });
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
         const auth = await getAuthContext(db);
         if (!auth) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+        const assignmentScope = await getAssignmentAuthScope(db, id);
+        if (!assignmentScope) return NextResponse.json({ error: 'Asignacion no encontrada' }, { status: 404 });
+
+        const isOwner = Number(assignmentScope.usuario_id) === Number(auth.userId);
+        const canViewAsLeader = auth.isLeader && auth.groupId && Number(assignmentScope.grupo_id) === Number(auth.groupId);
+        if (!auth.isAdmin && !canViewAsLeader && !isOwner) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+        }
 
         const informes = await db.prepare('SELECT * FROM informes WHERE asignacion_id = ? ORDER BY creado_en DESC').all(id);
         return NextResponse.json(informes);
@@ -61,8 +83,17 @@ export async function POST(request, { params }) {
         if (!id) return NextResponse.json({ error: 'ID de asignacion invalido' }, { status: 400 });
         const { mensaje } = await request.json();
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
         const auth = await getAuthContext(db);
         if (!auth) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+        const assignmentScope = await getAssignmentAuthScope(db, id);
+        if (!assignmentScope) return NextResponse.json({ error: 'Asignacion no encontrada' }, { status: 404 });
+
+        const isOwner = Number(assignmentScope.usuario_id) === Number(auth.userId);
+        const canPostAsLeader = auth.isLeader && auth.groupId && Number(assignmentScope.grupo_id) === Number(auth.groupId);
+        if (!auth.isAdmin && !canPostAsLeader && !isOwner) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+        }
 
         const stmt = db.prepare('INSERT INTO informes (asignacion_id, mensaje) VALUES (?, ?)');
         const result = await stmt.run(id, mensaje);
@@ -79,7 +110,6 @@ export async function POST(request, { params }) {
         `).get(id);
 
         if (asignacion) {
-            const targetUser = await db.prepare('SELECT grupo_id FROM usuarios WHERE id = ?').get(asignacion.usuario_id);
             await notifyRoles(
                 db,
                 ['Administrador', 'Lider de Grupo'],
@@ -89,7 +119,7 @@ export async function POST(request, { params }) {
                     mensaje: `${auth.name} envio un aviso en ${asignacion.proyecto_titulo || 'tarea'}${asignacion.capitulo ? ` (Cap. ${asignacion.capitulo})` : ''}`,
                     data: { asignacion_id: Number(id), informe_id: Number(informeId) },
                 },
-                { excludeUserIds: [auth.userId], groupId: targetUser?.grupo_id ?? null }
+                { excludeUserIds: [auth.userId], groupId: assignmentScope?.grupo_id ?? null }
             );
 
             if (Number(asignacion.usuario_id) !== auth.userId) {

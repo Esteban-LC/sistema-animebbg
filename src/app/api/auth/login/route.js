@@ -8,6 +8,18 @@ function normalizeRoles(rawRoles) {
     return list.map((role) => role === 'Traductor KO/JAP' ? 'Traductor KO' : role);
 }
 
+async function ensureGroupVisibilityColumns(db) {
+    try { await db.prepare('ALTER TABLE grupos ADD COLUMN mostrar_sugerencias INTEGER DEFAULT 1').run(); } catch { }
+    try { await db.prepare('ALTER TABLE grupos ADD COLUMN mostrar_ranking INTEGER DEFAULT 1').run(); } catch { }
+    try { await db.prepare('ALTER TABLE grupos ADD COLUMN mostrar_notificaciones INTEGER DEFAULT 1').run(); } catch { }
+}
+
+function getPrimaryRole(roles) {
+    if (roles.includes('Administrador')) return 'Administrador';
+    if (roles.includes('Lider de Grupo')) return 'Lider de Grupo';
+    return roles[0] || 'Staff';
+}
+
 function shouldUseSecureCookies(request) {
     if (process.env.AUTH_COOKIE_SECURE === 'true') return true;
     if (process.env.AUTH_COOKIE_SECURE === 'false') return false;
@@ -24,11 +36,17 @@ export async function POST(request) {
     try {
         const { username, password, rememberMe } = await request.json();
         const db = getDb();
+        await ensureGroupVisibilityColumns(db);
 
         // 1. Find user
         // Note: In production use bcrypt for passwords. Here checking plaintext as per plan/current state.
         const user = await db.prepare(`
-            SELECT u.*, g.nombre as grupo_nombre 
+            SELECT
+                u.*,
+                g.nombre as grupo_nombre,
+                COALESCE(g.mostrar_sugerencias, 1) as mostrar_sugerencias,
+                COALESCE(g.mostrar_ranking, 1) as mostrar_ranking,
+                COALESCE(g.mostrar_notificaciones, 1) as mostrar_notificaciones
             FROM usuarios u
             LEFT JOIN grupos g ON u.grupo_id = g.id
             WHERE u.nombre = ?
@@ -77,8 +95,14 @@ export async function POST(request) {
 
         return NextResponse.json({
             ...userWithoutPassword,
+            groupSettings: {
+                showSuggestions: Number(user.mostrar_sugerencias ?? 1) === 1,
+                showRanking: Number(user.mostrar_ranking ?? 1) === 1,
+                showNotifications: Number(user.mostrar_notificaciones ?? 1) === 1,
+            },
             roles,
             isAdmin: roles.includes('Administrador'),
+            role: getPrimaryRole(roles),
             isDefaultPassword: user.password === '123456'
         });
 

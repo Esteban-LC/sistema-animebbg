@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { createNotification, notifyRoles } from '@/lib/notifications';
 import { getProjectCatalogEntries } from '@/lib/project-catalog';
@@ -162,6 +162,7 @@ export async function POST(request) {
         }
 
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
         const traductorTipoColumnExists = await ensureTraductorTipoColumn(db);
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
@@ -189,8 +190,7 @@ export async function POST(request) {
         }
 
         const isAdmin = requesterRoles.includes('Administrador');
-        const requesterHasProductionRole = requesterRoles.some((roleName) => PRODUCTION_ROLES.includes(roleName));
-        const isLeader = requesterRoles.includes('Lider de Grupo') && !requesterHasProductionRole;
+        const isLeader = requesterRoles.includes('Lider de Grupo');
         const isSelfAssign = Number(session.usuario_id) === Number(usuario_id);
         const canAssign = isAdmin || isLeader || isSelfAssign;
         if (!canAssign) {
@@ -263,14 +263,14 @@ export async function POST(request) {
 
         const proyectosBase = proyecto_id
             ? await db.prepare(`
-                SELECT id, titulo, estado, tipo, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
+                SELECT id, titulo, estado, tipo, grupo_id, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
                        ${driveFolderColumnExists ? 'drive_folder_id' : 'NULL as drive_folder_id'}
                 FROM proyectos
                 WHERE id = ?
                   AND LOWER(TRIM(COALESCE(estado, 'Activo'))) NOT IN ('pausado', 'cancelado')
             `).all(proyecto_id)
             : await db.prepare(`
-                SELECT id, titulo, estado, tipo, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
+                SELECT id, titulo, estado, tipo, grupo_id, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
                        ${driveFolderColumnExists ? 'drive_folder_id' : 'NULL as drive_folder_id'}
                 FROM proyectos
                 WHERE LOWER(TRIM(COALESCE(estado, 'Activo'))) NOT IN ('pausado', 'cancelado')
@@ -411,12 +411,13 @@ export async function POST(request) {
         const capitulo = Number(opcionElegida.capitulo);
         const driveUrlFromCatalog = opcionElegida.driveUrlFromCatalog || null;
         const descripcion = `${proyectoElegido.titulo} - Capitulo ${capitulo}`;
+        const assignmentGroupId = proyectoElegido?.grupo_id ?? usuario?.grupo_id ?? null;
 
         let result;
         if (traductorTipoColumnExists) {
             result = await db.prepare(`
-                INSERT INTO asignaciones (usuario_id, rol, traductor_tipo, descripcion, proyecto_id, capitulo, drive_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO asignaciones (usuario_id, rol, traductor_tipo, descripcion, proyecto_id, capitulo, drive_url, grupo_id_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
                 usuario_id,
                 finalRole,
@@ -424,19 +425,21 @@ export async function POST(request) {
                 descripcion,
                 proyectoElegido.id,
                 capitulo,
-                driveUrlFromCatalog
+                driveUrlFromCatalog,
+                assignmentGroupId
             );
         } else {
             result = await db.prepare(`
-                INSERT INTO asignaciones (usuario_id, rol, descripcion, proyecto_id, capitulo, drive_url)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO asignaciones (usuario_id, rol, descripcion, proyecto_id, capitulo, drive_url, grupo_id_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             `).run(
                 usuario_id,
                 finalRole,
                 descripcion,
                 proyectoElegido.id,
                 capitulo,
-                driveUrlFromCatalog
+                driveUrlFromCatalog,
+                assignmentGroupId
             );
         }
 
@@ -471,7 +474,7 @@ export async function POST(request) {
                 mensaje: `${actorName} genero autoasignacion para ${asignacion?.usuario_nombre || 'usuario'} (${asignacion?.proyecto_titulo || 'Proyecto'} - Cap. ${asignacion?.capitulo})`,
                 data: { asignacion_id: Number(result.lastInsertRowid) },
             },
-            { excludeUserIds: [Number(session.usuario_id)], groupId: usuario?.grupo_id ?? null }
+            { excludeUserIds: [Number(session.usuario_id)], groupId: assignmentGroupId }
         );
 
         publishAssignmentEvent({
@@ -479,7 +482,7 @@ export async function POST(request) {
             assignment_id: Number(result.lastInsertRowid),
             usuario_id: Number(usuario_id),
             proyecto_id: proyectoElegido?.id ? Number(proyectoElegido.id) : null,
-            group_id: usuario?.grupo_id ? Number(usuario.grupo_id) : null,
+            group_id: assignmentGroupId ? Number(assignmentGroupId) : null,
             ts: Date.now(),
         });
 

@@ -35,6 +35,16 @@ const AVAILABLE_ROLES = [
     'Typer'
 ];
 
+const LEADER_ALLOWED_ROLES = [
+    'Lider de Grupo',
+    'Redrawer',
+    'Traductor',
+    'Traductor ENG',
+    'Traductor KO',
+    'Traductor JAP',
+    'Typer'
+];
+
 export default function UsuariosPage() {
     const { user } = useUser();
     const [usuarios, setUsuarios] = useState<Usuario[]>([]);
@@ -59,10 +69,10 @@ export default function UsuariosPage() {
 
     // Determine permissions
     const roles = user?.roles || [];
-    const productionRoles = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
-    const hasProductionRole = roles.some((role) => productionRoles.includes(role));
     const isAdmin = roles.includes('Administrador') || user?.role === 'admin';
-    const isLeader = (roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo') && !hasProductionRole;
+    const isLeader = roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo';
+    const canManageUsers = isAdmin;
+    const assignableRoles = isAdmin ? AVAILABLE_ROLES : LEADER_ALLOWED_ROLES;
 
     useEffect(() => {
         fetchUsuarios();
@@ -110,7 +120,7 @@ export default function UsuariosPage() {
     };
 
     const toggleStatus = async (id: number, currentStatus: number) => {
-        if (!isAdmin) return; // Only admin can toggle status
+        if (!canManageUsers) return;
         try {
             const newStatus = currentStatus === 1 ? 0 : 1;
             const res = await fetch(`/api/usuarios/${id}/toggle-status`, {
@@ -141,7 +151,7 @@ export default function UsuariosPage() {
     };
 
     const handleEdit = (usuario: Usuario) => {
-        if (!isAdmin) return;
+        if (!canManageUsers) return;
         setEditingId(usuario.id);
         setNuevoUsuario({
             nombre: usuario.nombre,
@@ -161,7 +171,7 @@ export default function UsuariosPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!isAdmin) return;
+        if (!canManageUsers) return;
         if (!nuevoUsuario.nombre) return;
 
         try {
@@ -169,7 +179,7 @@ export default function UsuariosPage() {
             const method = editingId ? 'PATCH' : 'POST';
             const payload = {
                 ...nuevoUsuario,
-                grupo_id: nuevoUsuario.grupo_id ? Number(nuevoUsuario.grupo_id) : undefined,
+                grupo_id: isLeader ? Number(user?.grupo_id || 0) : (nuevoUsuario.grupo_id ? Number(nuevoUsuario.grupo_id) : undefined),
             };
 
             const res = await fetch(url, {
@@ -196,7 +206,7 @@ export default function UsuariosPage() {
     };
 
     const handleDeleteClick = (usuario: Usuario) => {
-        if (!isAdmin) return;
+        if (!canManageUsers) return;
         setUserToDelete(usuario);
         setShowDeleteModal(true);
     };
@@ -229,7 +239,7 @@ export default function UsuariosPage() {
     const [showResetModal, setShowResetModal] = useState(false);
 
     const handleResetClick = (usuario: Usuario) => {
-        if (!isAdmin) return;
+        if (!canManageUsers) return;
         setUserToReset(usuario);
         setShowResetModal(true);
     };
@@ -306,9 +316,8 @@ export default function UsuariosPage() {
                         </div>
                     </div>
 
-                    <div className={`grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-8`}>
-                        {/* Formulario - Only for Admin */}
-                        {isAdmin && (
+                    <div className={`grid grid-cols-1 ${canManageUsers ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-8`}>
+                        {canManageUsers && (
                             <div className="bg-surface-dark p-6 rounded-xl border border-gray-800 shadow-lg h-fit">
                                 <h3 className="font-display font-bold text-xl text-white mb-6 flex items-center gap-2">
                                     <span className="material-icons-round text-primary">{editingId ? 'edit' : 'person_add'}</span>
@@ -349,22 +358,28 @@ export default function UsuariosPage() {
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-muted-dark uppercase tracking-wider mb-2">Grupo</label>
-                                        <select
-                                            value={nuevoUsuario.grupo_id}
-                                            onChange={e => setNuevoUsuario({ ...nuevoUsuario, grupo_id: e.target.value })}
-                                            className="w-full bg-background-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-primary transition-colors appearance-none"
-                                            required
-                                        >
-                                            <option value="">Seleccionar Grupo...</option>
-                                            {grupos.map(grupo => (
-                                                <option key={grupo.id} value={grupo.id}>{grupo.nombre}</option>
-                                            ))}
-                                        </select>
+                                        {isLeader && !isAdmin ? (
+                                            <div className="w-full bg-background-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white">
+                                                {String(user?.grupo_nombre || 'Sin Grupo').toUpperCase()}
+                                            </div>
+                                        ) : (
+                                            <select
+                                                value={nuevoUsuario.grupo_id}
+                                                onChange={e => setNuevoUsuario({ ...nuevoUsuario, grupo_id: e.target.value })}
+                                                className="w-full bg-background-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-primary transition-colors appearance-none"
+                                                required
+                                            >
+                                                <option value="">Seleccionar Grupo...</option>
+                                                {grupos.map(grupo => (
+                                                    <option key={grupo.id} value={grupo.id}>{grupo.nombre}</option>
+                                                ))}
+                                            </select>
+                                        )}
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-muted-dark uppercase tracking-wider mb-2">Roles</label>
                                         <div className="flex flex-wrap gap-2">
-                                            {AVAILABLE_ROLES.map(role => (
+                                            {assignableRoles.map(role => (
                                                 <button
                                                     key={role}
                                                     type="button"
@@ -403,7 +418,7 @@ export default function UsuariosPage() {
                         )}
 
                         {/* Lista */}
-                        <div className={`${isAdmin ? 'lg:col-span-2' : ''} bg-surface-dark rounded-xl border border-gray-800 shadow-lg overflow-hidden`}>
+                        <div className={`${canManageUsers ? 'lg:col-span-2' : ''} bg-surface-dark rounded-xl border border-gray-800 shadow-lg overflow-hidden`}>
                             <div className="p-6 border-b border-gray-800">
                                 <h3 className="font-display font-bold text-xl text-white flex items-center gap-2">
                                     <span className="material-icons-round text-success">group</span>
@@ -420,9 +435,9 @@ export default function UsuariosPage() {
                                             <th className="px-6 py-4">Creditos</th>
                                             <th className="px-6 py-4">Grupo</th>
                                             <th className="px-6 py-4">Roles</th>
-                                            {isAdmin && <th className="px-6 py-4">Estado</th>}
+                                            {canManageUsers && <th className="px-6 py-4">Estado</th>}
                                             {isAdmin && <th className="px-6 py-4 text-right">Fecha Registro</th>}
-                                            {(isAdmin || isLeader) && <th className="px-6 py-4 text-right sticky right-0 bg-surface-darker">Acciones</th>}
+                                            {canManageUsers && <th className="px-6 py-4 text-right sticky right-0 bg-surface-darker">Acciones</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-800">
@@ -438,7 +453,7 @@ export default function UsuariosPage() {
                                                     </td>
                                                     <td className="px-6 py-4"><div className="h-4 bg-gray-800/50 rounded w-20"></div></td>
                                                     <td className="px-6 py-4"><div className="h-4 bg-gray-800/50 rounded w-16"></div></td>
-                                                    {isAdmin && <td className="px-6 py-4 text-right"><div className="h-4 bg-gray-800/50 rounded w-16 ml-auto"></div></td>}
+                                                    {canManageUsers && <td className="px-6 py-4 text-right"><div className="h-4 bg-gray-800/50 rounded w-16 ml-auto"></div></td>}
                                                 </tr>
                                             ))
                                         ) : usuarios.map(usuario => (
@@ -483,7 +498,7 @@ export default function UsuariosPage() {
                                                         )}
                                                     </div>
                                                 </td>
-                                                {isAdmin && (
+                                                {canManageUsers && (
                                                     <td className="px-6 py-4">
                                                         <button
                                                             onClick={() => toggleStatus(usuario.id, usuario.activo)}
@@ -501,11 +516,11 @@ export default function UsuariosPage() {
                                                         {new Date(usuario.creado_en).toLocaleDateString()}
                                                     </td>
                                                 )}
-                                                {(isAdmin || isLeader) && (
+                                                {canManageUsers && (
                                                     <td className="px-6 py-4 text-right sticky right-0 bg-surface-dark">
                                                         <div className="flex items-center justify-end gap-2 min-w-[180px]">
                                                             {/* Leader Action: Assign Task */}
-                                                            {isLeader && !isAdmin && (
+                                                            {true && (
                                                                 <Link
                                                                     href={`/asignaciones/nueva?usuario_id=${usuario.id}`}
                                                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-darker hover:bg-primary/10 text-gray-300 hover:text-primary border border-gray-700 hover:border-primary/40 transition-colors text-xs font-bold"
@@ -517,7 +532,7 @@ export default function UsuariosPage() {
                                                             )}
 
                                                             {/* Admin Actions: Edit & Delete */}
-                                                            {isAdmin && (
+                                                            {true && (
                                                                 <>
                                                                     <button
                                                                         onClick={() => handleEdit(usuario)}
@@ -549,7 +564,7 @@ export default function UsuariosPage() {
                                         ))}
                                         {!loading && usuarios.length === 0 && (
                                             <tr>
-                                                <td colSpan={isAdmin ? 9 : (isLeader ? 7 : 6)} className="px-6 py-12 text-center text-muted-dark">
+                                                <td colSpan={isAdmin ? 9 : (canManageUsers ? 8 : 6)} className="px-6 py-12 text-center text-muted-dark">
                                                     <div className="flex flex-col items-center gap-2">
                                                         <span className="material-icons-round text-4xl text-gray-700">person_off</span>
                                                         <p>No hay usuarios registrados aún.</p>

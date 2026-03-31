@@ -242,6 +242,18 @@ export default function SugerenciasPage() {
 
   const roles = user?.roles || [];
   const canManage = Boolean(user?.isAdmin || roles.includes('Administrador') || roles.includes('Lider de Grupo'));
+  const isLeader = roles.includes('Lider de Grupo');
+  const groupSuggestionsVisible = user?.groupSettings?.showSuggestions !== false;
+  const canViewSuggestions = Boolean(user?.isAdmin || roles.includes('Administrador') || isLeader || groupSuggestionsVisible);
+  const canManageGroupVisibility = Boolean(user?.grupo_id && canManage);
+
+  if (user && !canViewSuggestions && !canManageGroupVisibility) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-background-dark text-muted-dark p-6">
+        Las sugerencias estan ocultas para este grupo.
+      </div>
+    );
+  }
 
   async function loadData() {
     setLoading(true);
@@ -297,6 +309,25 @@ export default function SugerenciasPage() {
       socket?.emit('content-changed');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error guardando periodo', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setGroupSuggestionVisibility(hidden: boolean) {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/grupos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: user?.grupo_id, mostrar_sugerencias: !hidden }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'No se pudo actualizar la visibilidad');
+      showToast(hidden ? 'Sugerencias ocultas para el staff de este grupo' : 'Sugerencias visibles para el staff de este grupo', 'success');
+      window.location.reload();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Error actualizando visibilidad', 'error');
     } finally {
       setSaving(false);
     }
@@ -591,13 +622,24 @@ export default function SugerenciasPage() {
                   <p className="text-sm text-gray-300">
                     Define el rango oficial para la votacion. Con eso se toma la votacion actual y, cuando cierre, se ira al historial.
                   </p>
-                  <button
-                    onClick={saveSchedule}
-                    disabled={saving || !configForm.start_at || !configForm.end_at}
-                    className="mt-3 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-bold disabled:opacity-50 w-full md:w-fit"
-                  >
-                    Guardar periodo
-                  </button>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={saveSchedule}
+                      disabled={saving || !configForm.start_at || !configForm.end_at}
+                      className="px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-bold disabled:opacity-50 w-full md:w-fit"
+                    >
+                      Guardar periodo
+                    </button>
+                    {canManageGroupVisibility && (
+                      <button
+                        onClick={() => setGroupSuggestionVisibility(groupSuggestionsVisible)}
+                        disabled={saving}
+                        className="px-4 py-2.5 rounded-xl bg-surface-darker border border-gray-600 text-white text-sm font-bold disabled:opacity-50 w-full md:w-fit"
+                      >
+                        {groupSuggestionsVisible ? 'Ocultar para este grupo' : 'Mostrar para este grupo'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

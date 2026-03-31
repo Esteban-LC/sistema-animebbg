@@ -13,6 +13,11 @@ interface User {
     avatar_url?: string;
     grupo_id?: number;
     grupo_nombre?: string;
+    groupSettings?: {
+        showSuggestions: boolean;
+        showRanking: boolean;
+        showNotifications: boolean;
+    };
     role?: string; // Legacy support
     isDefaultPassword?: boolean;
 }
@@ -86,7 +91,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         const userData = await res.json();
         setUser(userData);
 
-        if (userData.isAdmin || userData.roles?.includes('Administrador')) {
+        const roles = Array.isArray(userData.roles) ? userData.roles : [];
+        const isGroupLeader = roles.includes('Lider de Grupo') || userData.role === 'Lider de Grupo';
+
+        if (userData.isAdmin || roles.includes('Administrador')) {
+            router.push('/');
+        } else if (isGroupLeader) {
             router.push('/');
         } else {
             router.push('/staff');

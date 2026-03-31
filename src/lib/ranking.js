@@ -1,3 +1,4 @@
+import { ensureAssignmentGroupSnapshotSchema } from '@/lib/db';
 import { createNotification } from '@/lib/notifications';
 import { publishRankingEvent } from '@/lib/realtime';
 
@@ -156,8 +157,9 @@ export async function getOfficialRankingRange(db) {
 }
 
 export async function computeRankingForScope(db, { start, end, groupId = null, limit = 50 }) {
+    await ensureAssignmentGroupSnapshotSchema(db);
     const useGroupFilter = groupId !== null && groupId !== undefined;
-    const groupClause = useGroupFilter ? 'AND u.grupo_id = ?' : '';
+    const groupClause = useGroupFilter ? 'AND COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?' : '';
     const query = `
         SELECT
             u.id as usuario_id,
@@ -175,6 +177,8 @@ export async function computeRankingForScope(db, { start, end, groupId = null, l
          AND a.completado_en IS NOT NULL
          AND a.completado_en >= ?
          AND a.completado_en <= ?
+        LEFT JOIN proyectos p
+          ON p.id = a.proyecto_id
         WHERE u.activo = 1
           ${groupClause}
         GROUP BY u.id, u.nombre, u.avatar_url, u.grupo_id

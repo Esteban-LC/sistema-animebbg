@@ -1,4 +1,4 @@
-import { getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, getDb } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { catalogFromDriveByRoleFolders } from '@/lib/google-drive';
@@ -6,7 +6,7 @@ import { refreshRankingRealtime } from '@/lib/ranking';
 
 export const dynamic = 'force-dynamic';
 
-async function requireAdmin(db) {
+async function requireManager(db) {
     const cookieStore = await cookies();
     const token = cookieStore.get('auth_token')?.value;
 
@@ -15,7 +15,7 @@ async function requireAdmin(db) {
     }
 
     const session = await db.prepare(`
-            SELECT u.roles
+            SELECT u.roles, u.grupo_id
             FROM sessions s
             JOIN usuarios u ON s.usuario_id = u.id
             WHERE s.token = ? AND s.expires_at > datetime('now')
@@ -32,11 +32,19 @@ async function requireAdmin(db) {
         roles = [];
     }
 
-    if (!roles.includes('Administrador')) {
-        return { error: NextResponse.json({ error: 'Solo administradores' }, { status: 403 }) };
+    const isAdmin = roles.includes('Administrador');
+    const isLeader = roles.includes('Lider de Grupo');
+
+    if (!isAdmin && !isLeader) {
+        return { error: NextResponse.json({ error: 'Solo administradores o lideres de grupo' }, { status: 403 }) };
     }
 
-    return { ok: true };
+    return {
+        ok: true,
+        isAdmin,
+        isLeader,
+        groupId: session.grupo_id ? Number(session.grupo_id) : null,
+    };
 }
 
 function parseNames(raw) {
@@ -339,7 +347,8 @@ async function getGlobalCreditsLayout(db) {
 export async function GET() {
     try {
         const db = getDb();
-        const auth = await requireAdmin(db);
+        await ensureAssignmentGroupSnapshotSchema(db);
+        const auth = await requireManager(db);
         if (auth.error) return auth.error;
         await ensureUsuariosCreditosColumns(db);
         await ensureCreditosTable(db);
@@ -378,10 +387,11 @@ export async function GET() {
             WHERE a.estado = 'Completado'
               AND a.proyecto_id IS NOT NULL
               AND a.capitulo IS NOT NULL
+              ${!auth.isAdmin && auth.groupId ? 'AND COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?' : ''}
             GROUP BY p.id, p.titulo, p.imagen_url, a.capitulo
             ORDER BY MAX(a.completado_en) DESC
             LIMIT 250
-        `).all();
+        `).all(...(!auth.isAdmin && auth.groupId ? [auth.groupId] : []));
 
         const completados = [];
         const existingChapterKeys = new Set();
@@ -525,7 +535,8 @@ export async function GET() {
         const proyectosCatalogo = await db.prepare(`
             SELECT id, titulo, imagen_url, capitulos_catalogo, ${hasProjectCreditsConfig ? 'creditos_config' : 'NULL as creditos_config'}
             FROM proyectos
-        `).all();
+            ${!auth.isAdmin && auth.groupId ? 'WHERE grupo_id = ?' : ''}
+        `).all(...(!auth.isAdmin && auth.groupId ? [auth.groupId] : []));
 
         for (const proyecto of Array.isArray(proyectosCatalogo) ? proyectosCatalogo : []) {
             let catalogo = [];
@@ -649,6 +660,7 @@ export async function GET() {
 export async function PATCH(request) {
     try {
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
         const auth = await requireAdmin(db);
         if (auth.error) return auth.error;
         await ensureUsuariosCreditosColumns(db);
@@ -863,10 +875,11 @@ export async function PATCH(request) {
             `).get(proyecto_id, capitulo, finalRole);
 
             const normalizedDriveUrl = String(drive_url || '').trim();
-            const proyecto = await db.prepare('SELECT id, titulo, capitulos_catalogo FROM proyectos WHERE id = ?').get(proyecto_id);
+            const proyecto = await db.prepare('SELECT id, titulo, capitulos_catalogo, grupo_id FROM proyectos WHERE id = ?').get(proyecto_id);
             if (!proyecto) {
                 return NextResponse.json({ error: 'Proyecto no encontrado' }, { status: 404 });
             }
+            const proyectoGroup = await db.prepare('SELECT grupo_id FROM proyectos WHERE id = ?').get(proyecto_id);
 
             const chapterCatalog = findCatalogChapter(proyecto.capitulos_catalogo, capitulo);
             const fallbackRoleUrl = pickCatalogRoleUrl(chapterCatalog, finalRole);
@@ -911,16 +924,17 @@ export async function PATCH(request) {
                 INSERT INTO asignaciones (
                     usuario_id, rol, descripcion, estado,
                     asignado_en, completado_en, informe, drive_url,
-                    proyecto_id, capitulo
+                    proyecto_id, capitulo, grupo_id_snapshot
                 )
-                VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?, ?, ?)
+                VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?)
             `).run(
                 selectedUserId,
                 finalRole,
                 `${proyecto.titulo} - Capitulo ${capitulo}`,
                 finalDriveUrl,
                 proyecto_id,
-                capitulo
+                capitulo,
+                proyectoGroup?.grupo_id ?? null
             );
 
             await refreshRankingRealtime(db, { notifyPositionChanges: true });
@@ -928,10 +942,11 @@ export async function PATCH(request) {
             return NextResponse.json({ message: 'Registro manual creado', asignacion_id: Number(insert.lastInsertRowid) });
         }
 
-        const proyecto = await db.prepare('SELECT id, titulo, capitulos_catalogo FROM proyectos WHERE id = ?').get(proyecto_id);
+        const proyecto = await db.prepare('SELECT id, titulo, capitulos_catalogo, grupo_id FROM proyectos WHERE id = ?').get(proyecto_id);
         if (!proyecto) {
             return NextResponse.json({ error: 'Proyecto no encontrado' }, { status: 404 });
         }
+        const proyectoGroup = await db.prepare('SELECT grupo_id FROM proyectos WHERE id = ?').get(proyecto_id);
         const chapterCatalog = findCatalogChapter(proyecto.capitulos_catalogo, capitulo);
 
         const rolesMap = [
@@ -973,16 +988,17 @@ export async function PATCH(request) {
                         INSERT INTO asignaciones (
                             usuario_id, rol, descripcion, estado,
                             asignado_en, completado_en, informe, drive_url,
-                            proyecto_id, capitulo
+                            proyecto_id, capitulo, grupo_id_snapshot
                         )
-                        VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?, ?, ?)
+                        VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?)
                     `).run(
                         user.id,
                         roleGroup.rol,
                         `${proyecto.titulo} - Capitulo ${capitulo}`,
                         pickCatalogRoleUrl(chapterCatalog, roleGroup.rol) || null,
                         proyecto_id,
-                        capitulo
+                        capitulo,
+                        proyectoGroup?.grupo_id ?? null
                     );
                     addedAssignments += 1;
                 }
@@ -1034,6 +1050,7 @@ export async function POST(request) {
                 SELECT
                     id,
                     titulo,
+                    grupo_id,
                     ${hasCatalogColumn ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
                     ${hasDriveFolderColumn ? 'drive_folder_id' : 'NULL as drive_folder_id'}
                 FROM proyectos
@@ -1043,6 +1060,7 @@ export async function POST(request) {
                 SELECT
                     id,
                     titulo,
+                    grupo_id,
                     ${hasCatalogColumn ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
                     ${hasDriveFolderColumn ? 'drive_folder_id' : 'NULL as drive_folder_id'}
                 FROM proyectos
@@ -1186,21 +1204,22 @@ export async function POST(request) {
                         drive_url: expectedUrl,
                     });
                     if (!dryRun) {
-                        await db.prepare(`
-                            INSERT INTO asignaciones (
-                                usuario_id, rol, descripcion, estado,
-                                asignado_en, completado_en, informe, drive_url,
-                                proyecto_id, capitulo
-                            )
-                            VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?, ?, ?)
-                        `).run(
-                            systemUserId,
-                            roleInfo.rol,
-                            `${project.titulo} - Capitulo ${chapter.numero}`,
-                            expectedUrl,
-                            project.id,
-                            chapter.numero
-                        );
+                    await db.prepare(`
+                        INSERT INTO asignaciones (
+                            usuario_id, rol, descripcion, estado,
+                            asignado_en, completado_en, informe, drive_url,
+                            proyecto_id, capitulo, grupo_id_snapshot
+                        )
+                        VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?)
+                    `).run(
+                        systemUserId,
+                        roleInfo.rol,
+                        `${project.titulo} - Capitulo ${chapter.numero}`,
+                        expectedUrl,
+                        project.id,
+                        chapter.numero,
+                        project?.grupo_id ?? null
+                    );
                     }
                     inserts += 1;
                     touchedProjects.add(Number(project.id));

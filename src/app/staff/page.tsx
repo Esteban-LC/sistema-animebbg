@@ -52,6 +52,7 @@ const TRANSLATOR_ENG_ROLE = 'Traductor ENG';
 const TRANSLATOR_KO_ROLE = 'Traductor KO';
 const TRANSLATOR_JAP_ROLE = 'Traductor JAP';
 const TRANSLATOR_CORE_LEGACY_ROLE = 'Traductor KO/JAP';
+const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
 type AssignMode = 'normal' | 'ruleta';
 
 function resolveAvailableRoles(userRoles: string[]) {
@@ -129,6 +130,8 @@ export default function StaffPage() {
     const selfHasTradEng = selfRoles.includes(TRANSLATOR_ENG_ROLE);
     const canUseCoreTranslator = Number(selectedProject?.raw_secundario_activo || 0) === 1;
     const canUseCoreTranslatorForSelf = canUseCoreTranslator && selfHasTradCore;
+    const isLeaderOnly =
+        Boolean(selfRoles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo');
 
     const fetchNextChapterOption = async (proyectoId: string, rol: string) => {
         if (!proyectoId || !rol) {
@@ -226,36 +229,59 @@ export default function StaffPage() {
     }, [user?.id]);
 
     useEffect(() => {
-        if (selfHasTradEng && !selfHasTradCore) {
-            setSelfForm((prev) => ({ ...prev, traductor_tipo: 'ENG' }));
-        } else if (selfHasTradCore && !selfHasTradEng) {
-            setSelfForm((prev) => ({ ...prev, traductor_tipo: 'CORE' }));
-        }
+        if (isLeaderOnly) return;
 
-        if (roleOptions.length === 1) {
-            setSelfForm((prev) => {
-                if (prev.rol === roleOptions[0]) return prev;
-                return { ...prev, rol: roleOptions[0] };
-            });
-            return;
-        }
         setSelfForm((prev) => {
-            if (prev.rol && roleOptions.includes(prev.rol)) return prev;
-            if (!prev.rol) return prev;
-            return { ...prev, rol: '' };
+            const next = { ...prev };
+            let changed = false;
+
+            if (selfHasTradEng && !selfHasTradCore && prev.traductor_tipo !== 'ENG') {
+                next.traductor_tipo = 'ENG';
+                changed = true;
+            } else if (selfHasTradCore && !selfHasTradEng && prev.traductor_tipo !== 'CORE') {
+                next.traductor_tipo = 'CORE';
+                changed = true;
+            }
+
+            if (roleOptions.length === 1 && prev.rol !== roleOptions[0]) {
+                next.rol = roleOptions[0];
+                changed = true;
+            } else if (roleOptions.length > 1 && prev.rol && !roleOptions.includes(prev.rol)) {
+                next.rol = '';
+                changed = true;
+            }
+
+            return changed ? next : prev;
         });
     }, [roleOptionsKey, selfHasTradCore, selfHasTradEng]);
 
     useEffect(() => {
+        if (isLeaderOnly) return;
         if (selfForm.rol !== 'Traductor') return;
-        if (selfForm.traductor_tipo === 'CORE' && !canUseCoreTranslatorForSelf) {
-            setSelfForm((prev) => ({ ...prev, traductor_tipo: 'ENG', capitulo: '' }));
-            return;
-        }
-        if (selfForm.traductor_tipo === 'ENG' && !selfHasTradEng) {
-            setSelfForm((prev) => ({ ...prev, traductor_tipo: 'CORE', capitulo: '' }));
-        }
-    }, [selfForm.rol, selfForm.traductor_tipo, canUseCoreTranslatorForSelf, selfHasTradEng]);
+
+        const currentType = selfForm.traductor_tipo;
+        const canUseEng = selfHasTradEng;
+        const canUseCore = selfHasTradCore && canUseCoreTranslatorForSelf;
+
+        const currentIsValid =
+            (currentType === 'ENG' && canUseEng)
+            || (currentType === 'CORE' && canUseCore);
+
+        if (currentIsValid) return;
+
+        const nextType = canUseEng ? 'ENG' : canUseCore ? 'CORE' : currentType;
+        if (nextType === currentType) return;
+
+        setSelfForm((prev) => {
+            if (prev.traductor_tipo === nextType) return prev;
+            return { ...prev, traductor_tipo: nextType, capitulo: '' };
+        });
+    }, [selfForm.rol, selfForm.traductor_tipo, canUseCoreTranslatorForSelf, selfHasTradCore, selfHasTradEng]);
+
+    useEffect(() => {
+        if (!user || !isLeaderOnly) return;
+        router.replace('/');
+    }, [isLeaderOnly, router, user]);
 
     useEffect(() => {
         if (assignMode !== 'ruleta') return;
@@ -391,6 +417,10 @@ export default function StaffPage() {
                 return 'text-gray-300 bg-gray-500/10 border-gray-500/30';
         }
     };
+
+    if (isLeaderOnly) {
+        return null;
+    }
 
     return (
         <div className="flex-1 flex flex-col h-full bg-background-dark overflow-hidden">

@@ -110,28 +110,30 @@ export default function CompletadosPage() {
     const [previewLoading, setPreviewLoading] = useState(false);
 
     const isAdmin = user?.isAdmin || user?.roles?.includes('Administrador') || user?.role === 'admin';
+    const isLeader = user?.roles?.includes('Lider de Grupo') || user?.role === 'Lider de Grupo';
+    const canViewCompletados = Boolean(isAdmin || isLeader);
 
     useEffect(() => {
         if (userLoading) return;
-        if (!isAdmin) {
+        if (!canViewCompletados) {
             setLoading(false);
             return;
         }
 
         fetchCompletados();
-    }, [userLoading, isAdmin]);
+    }, [userLoading, canViewCompletados]);
 
     useEffect(() => {
-        if (!socket || !isAdmin) return;
+        if (!socket || !canViewCompletados) return;
         const handleContentChanged = () => {
             fetchCompletados();
         };
         socket.on('content-changed', handleContentChanged);
         return () => { socket.off('content-changed', handleContentChanged); };
-    }, [socket, isAdmin]);
+    }, [socket, canViewCompletados]);
 
     useEffect(() => {
-        if (!isAdmin) return;
+        if (!canViewCompletados) return;
         fetch('/api/usuarios')
             .then((res) => res.json())
             .then((data) => {
@@ -152,10 +154,10 @@ export default function CompletadosPage() {
             .catch(() => {
                 setStaffUsers([]);
             });
-    }, [isAdmin]);
+    }, [canViewCompletados]);
 
     useEffect(() => {
-        if (!isAdmin) return;
+        if (!canViewCompletados) return;
         fetch('/api/proyectos')
             .then((res) => res.json())
             .then((data) => {
@@ -169,7 +171,7 @@ export default function CompletadosPage() {
             .catch(() => {
                 setProjectOptions([]);
             });
-    }, [isAdmin]);
+    }, [canViewCompletados]);
 
     const fetchCompletados = async () => {
         setLoading(true);
@@ -820,10 +822,10 @@ export default function CompletadosPage() {
         }
     };
 
-    if (!userLoading && !isAdmin) {
+    if (!userLoading && !canViewCompletados) {
         return (
             <div className="flex-1 flex items-center justify-center bg-background-dark text-muted-dark p-6">
-                Solo administradores pueden ver esta vista.
+                Solo administradores o lideres de grupo pueden ver esta vista.
             </div>
         );
     }

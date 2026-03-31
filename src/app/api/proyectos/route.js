@@ -9,6 +9,40 @@ export const dynamic = 'force-dynamic';
 
 import { cookies } from 'next/headers';
 
+const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
+
+async function getSessionPermissions(db) {
+    const cookieStore = await cookies();
+    const token = cookieStore.get('auth_token')?.value;
+    if (!token) return null;
+
+    const session = await db.prepare(`
+        SELECT s.usuario_id, u.roles, u.grupo_id
+        FROM sessions s
+        JOIN usuarios u ON s.usuario_id = u.id
+        WHERE s.token = ? AND s.expires_at > datetime('now')
+    `).get(token);
+    if (!session) return null;
+
+    let roles = [];
+    try {
+        roles = JSON.parse(session.roles || '[]');
+    } catch {
+        roles = [];
+    }
+
+    const isAdmin = roles.includes('Administrador');
+    const isLeaderOnly = roles.includes('Lider de Grupo');
+
+    return {
+        userId: Number(session.usuario_id),
+        roles,
+        groupId: session.grupo_id ?? null,
+        isAdmin,
+        isLeaderOnly,
+    };
+}
+
 function normalizeTitleKey(value) {
     return String(value || '')
         .toLowerCase()
@@ -437,6 +471,13 @@ export async function GET() {
 
 export async function POST(request) {
     try {
+        const db = await getDb();
+        const permissions = await getSessionPermissions(db);
+        if (!permissions) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+        if (!permissions.isAdmin && !permissions.isLeaderOnly) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+        }
+
         const body = await request.json();
         const {
             titulo,
@@ -457,8 +498,6 @@ export async function POST(request) {
             fuentes_config,
             creditos_config,
         } = body;
-        const db = getDb();
-
         const duplicate = await findPotentialDuplicateProject(db, titulo);
         if (duplicate) {
             return NextResponse.json({
@@ -481,7 +520,10 @@ export async function POST(request) {
         const totalFinal = maxCatalogo ?? (capitulos_totales ?? null);
 
         // Default to Group 1 if not specified
-        const finalGrupoId = grupo_id || 1;
+        const finalGrupoId = permissions.isLeaderOnly ? Number(permissions.groupId || 0) : (grupo_id || 1);
+        if (!finalGrupoId) {
+            return NextResponse.json({ error: 'Grupo invalido' }, { status: 400 });
+        }
 
         let result;
         if (hasCatalog) {

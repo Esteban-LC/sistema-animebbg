@@ -124,7 +124,7 @@ function NuevaAsignacionContent() {
     const productionRoles = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
     const hasProductionRole = roles.some((role) => productionRoles.includes(role));
     const isAdmin = roles.includes('Administrador') || user?.role === 'admin';
-    const isLeader = (roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo') && !hasProductionRole;
+    const isLeader = roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo';
 
     const [usuarios, setUsuarios] = useState<Usuario[]>([]);
     const [proyectos, setProyectos] = useState<Proyecto[]>([]);

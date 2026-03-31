@@ -56,7 +56,7 @@ export default function HistorialPage() {
     const roles = user?.roles || [];
     const productionRoles = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
     const hasProductionRole = roles.some((role) => productionRoles.includes(role));
-    const isLeaderOnly = roles.includes('Lider de Grupo') && !hasProductionRole;
+    const isLeaderOnly = roles.includes('Lider de Grupo');
     const isAdmin = Boolean(user?.isAdmin || roles.includes('Administrador'));
     const canViewAll = isAdmin || isLeaderOnly;
     const summaryTitle = !canViewAll

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSidebar } from '@/context/SidebarContext';
 import { useSocket } from '@/context/SocketContext';
+import { useUser } from '@/context/UserContext';
 import { getTimeAgoLocal, formatActivityDate } from '@/utils/date';
 
 interface Stats {
@@ -35,6 +36,7 @@ interface Asignacion {
 export default function Dashboard() {
   const { toggle } = useSidebar();
   const { socket } = useSocket();
+  const { user } = useUser();
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentAssignments, setRecentAssignments] = useState<Asignacion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +82,7 @@ export default function Dashboard() {
     completadas: 0,
     por_rol: { redraw: 0, traduccion: 0, typeo: 0 }
   };
+  const groupLabel = String(user?.grupo_nombre || 'Mi Grupo').toUpperCase();
 
   const getRoleLabel = (role: string) => {
     if (role === 'Traductor') return 'TRADUCCIÓN';
@@ -127,7 +130,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <div>
               <h1 className="font-display font-bold text-2xl lg:text-3xl uppercase tracking-wider text-white">
-                <span className="text-primary mr-2">GRUPO</span>-C4
+                {groupLabel}
               </h1>
               <p className="hidden lg:block text-xs text-muted-dark tracking-widest uppercase">Seguimiento de Producción</p>
             </div>

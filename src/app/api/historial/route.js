@@ -1,4 +1,4 @@
-import { getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, getDb } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getOfficialRankingRange } from '@/lib/ranking';
@@ -25,6 +25,7 @@ export async function GET(request) {
         const queryStart = searchParams.get('start');
         const queryEnd = searchParams.get('end');
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
 
@@ -49,9 +50,8 @@ export async function GET(request) {
         } catch {
             roles = [];
         }
-        const hasProductionRole = roles.some((roleName) => PRODUCTION_ROLES.includes(roleName));
         const isAdmin = roles.includes('Administrador');
-        const isLeaderOnly = roles.includes('Lider de Grupo') && !hasProductionRole;
+        const isLeaderOnly = roles.includes('Lider de Grupo');
         const canViewAll = isAdmin || isLeaderOnly;
         const targetUserId = canViewAll
             ? (usuario_id || null)
@@ -98,7 +98,7 @@ export async function GET(request) {
             params.push(targetUserId);
         }
         if (isLeaderOnly && !isAdmin) {
-            query += ' AND u.grupo_id = ?';
+            query += ' AND COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?';
             params.push(sessionGroupId);
         }
         if (start && end) {
@@ -122,6 +122,7 @@ export async function GET(request) {
                 SUM(CASE WHEN a.rol = 'Typer' THEN 1 ELSE 0 END) as typer,
                 SUM(CASE WHEN a.rol = 'Redrawer' THEN 1 ELSE 0 END) as redrawer
             FROM asignaciones a
+            LEFT JOIN proyectos p ON a.proyecto_id = p.id
             LEFT JOIN usuarios u ON a.usuario_id = u.id
             WHERE a.estado = 'Completado'
         `;
@@ -132,7 +133,7 @@ export async function GET(request) {
             summaryParams.push(targetUserId);
         }
         if (isLeaderOnly && !isAdmin) {
-            summaryQuery += ' AND u.grupo_id = ?';
+            summaryQuery += ' AND COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?';
             summaryParams.push(sessionGroupId);
         }
         if (start && end) {
@@ -154,6 +155,7 @@ export async function GET(request) {
                 COALESCE(NULLIF(TRIM(u.nombre), ''), 'Usuario eliminado') as usuario,
                 COUNT(*) as trabajos_total
             FROM asignaciones a
+            LEFT JOIN proyectos p ON a.proyecto_id = p.id
             LEFT JOIN usuarios u ON a.usuario_id = u.id
             WHERE a.estado = 'Completado'
         `;
@@ -164,7 +166,7 @@ export async function GET(request) {
             totalsParams.push(targetUserId);
         }
         if (isLeaderOnly && !isAdmin) {
-            totalsQuery += ' AND u.grupo_id = ?';
+            totalsQuery += ' AND COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?';
             totalsParams.push(sessionGroupId);
         }
 

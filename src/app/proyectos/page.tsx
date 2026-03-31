@@ -391,10 +391,13 @@ export default function ProyectosPage() {
     const [saveFuentesInfo, setSaveFuentesInfo] = useState('');
     const [saveFuentesError, setSaveFuentesError] = useState('');
     const roles = user?.roles || [];
+    const productionRoles = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
+    const hasProductionRole = roles.some((role) => productionRoles.includes(role));
+    const isAdmin = Boolean(user?.isAdmin || roles.includes('Administrador') || user?.role === 'admin');
+    const isLeaderOnly = roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo';
     const canViewProjectConfigIndicators = Boolean(
-        user?.isAdmin
-        || roles.includes('Administrador')
-        || roles.includes('Lider de Grupo')
+        isAdmin
+        || isLeaderOnly
     );
     const [modalFocusSection, setModalFocusSection] = useState<'fuentes' | 'creditos' | null>(null);
     const [isFuentesSectionOpen, setIsFuentesSectionOpen] = useState(false);
@@ -1036,14 +1039,16 @@ export default function ProyectosPage() {
                     </h1>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button
-                        onClick={handleSyncAllProjects}
-                        disabled={syncAllLoading}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition-all"
-                    >
-                        <span className="material-icons-round text-base">sync</span>
-                        <span>{syncAllLoading ? 'Sincronizando...' : 'Sincronizar Todo'}</span>
-                    </button>
+                    {(isAdmin || isLeaderOnly) && (
+                        <button
+                            onClick={handleSyncAllProjects}
+                            disabled={syncAllLoading}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition-all"
+                        >
+                            <span className="material-icons-round text-base">sync</span>
+                            <span>{syncAllLoading ? 'Sincronizando...' : 'Sincronizar Todo'}</span>
+                        </button>
+                    )}
                     <button
                         onClick={() => handleOpenModal()}
                         className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-lg text-sm font-bold shadow-lg shadow-primary/30 transition-all transform hover:scale-105"
@@ -1372,14 +1377,16 @@ export default function ProyectosPage() {
                                         />
                                     </div>
                                     <div className="mt-2 flex flex-col sm:flex-row gap-2 sm:items-center">
-                                        <button
-                                            type="button"
-                                            onClick={handleSyncRoleFolders}
-                                            disabled={!isEditing || roleSyncLoading}
-                                            className="w-full sm:w-auto px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold"
-                                        >
-                                            {roleSyncLoading ? 'Sincronizando...' : 'Autorrellenar capitulos desde Drive'}
-                                        </button>
+                                        {isAdmin && (
+                                            <button
+                                                type="button"
+                                                onClick={handleSyncRoleFolders}
+                                                disabled={!isEditing || roleSyncLoading}
+                                                className="w-full sm:w-auto px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold"
+                                            >
+                                                {roleSyncLoading ? 'Sincronizando...' : 'Autorrellenar capitulos desde Drive'}
+                                            </button>
+                                        )}
                                         <p className="text-[11px] text-muted-dark">
                                             {isSecondaryRawEnabled
                                                 ? `Usa estas carpetas para detectar automaticamente RAW ENG y RAW ${coreRawLabel}, ademas de Traduccion, Redraw y Typeo.`
@@ -1705,15 +1712,17 @@ export default function ProyectosPage() {
                                                     className="flex-1 bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
                                                     placeholder="ID o URL de fuente (Drive)"
                                                 />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleSetFontAll(currentProject.creditos_config?.imagen?.font_file_id || '')}
-                                                    disabled={savingPlantillaAll || !currentProject.creditos_config?.imagen?.font_file_id}
-                                                    className="px-2 py-1 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-[11px] font-bold disabled:opacity-40 shrink-0"
-                                                    title="Aplicar este ID/URL de fuente a todos los proyectos"
-                                                >
-                                                    Todos
-                                                </button>
+                                                {isAdmin && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSetFontAll(currentProject.creditos_config?.imagen?.font_file_id || '')}
+                                                        disabled={savingPlantillaAll || !currentProject.creditos_config?.imagen?.font_file_id}
+                                                        className="px-2 py-1 rounded-lg bg-purple-700 hover:bg-purple-800 text-white text-[11px] font-bold disabled:opacity-40 shrink-0"
+                                                        title="Aplicar este ID/URL de fuente a todos los proyectos"
+                                                    >
+                                                        Todos
+                                                    </button>
+                                                )}
                                             </div>
                                             <input
                                                 type="text"

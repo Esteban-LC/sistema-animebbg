@@ -1,4 +1,4 @@
-import { getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, getDb } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getFinalTopForScope, refreshRankingRealtime } from '@/lib/ranking';
@@ -57,6 +57,14 @@ function getCurrentMonthRange() {
         start: first.toISOString().slice(0, 10),
         end: last.toISOString().slice(0, 10),
     };
+}
+
+function getScopeKey(groupId) {
+    return groupId === null || groupId === undefined ? 'all' : `g${Number(groupId)}`;
+}
+
+async function ensureGroupVisibilityColumns(db) {
+    try { await db.prepare('ALTER TABLE grupos ADD COLUMN mostrar_ranking INTEGER DEFAULT 1').run(); } catch { }
 }
 
 async function ensureRankingConfigTable(db) {
@@ -146,6 +154,8 @@ async function getSessionAndRoles(db) {
 export async function GET(request) {
     try {
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
+        await ensureGroupVisibilityColumns(db);
         const sessionData = await getSessionAndRoles(db);
         if (!sessionData) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -153,9 +163,12 @@ export async function GET(request) {
 
         const { session, roles } = sessionData;
         const isAdmin = roles.includes('Administrador');
-        const hasProductionRole = roles.some((roleName) => PRODUCTION_ROLES.includes(roleName));
-        const isLeaderOnly = roles.includes('Lider de Grupo') && !hasProductionRole;
+        const isLeaderOnly = roles.includes('Lider de Grupo');
         const viewerGroupId = session.grupo_id || null;
+        const groupRow = viewerGroupId
+            ? await db.prepare('SELECT COALESCE(mostrar_ranking, 1) as mostrar_ranking FROM grupos WHERE id = ?').get(viewerGroupId)
+            : null;
+        const groupRankingHidden = Number(groupRow?.mostrar_ranking ?? 1) !== 1;
 
         const officialRange = await getOrCreateRankingConfig(db);
         const { searchParams } = new URL(request.url);
@@ -184,6 +197,9 @@ export async function GET(request) {
 
             const seasonKey = searchParams.get('season_key');
             if (seasonKey) {
+                if (!isAdmin && !String(seasonKey).endsWith(`|${getScopeKey(viewerGroupId)}`)) {
+                    return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+                }
                 const rows = await db.prepare(`
                     SELECT posicion, usuario_id, usuario_nombre, completados, traductor, redrawer, typer
                     FROM ranking_final_results
@@ -205,24 +221,25 @@ export async function GET(request) {
                 });
             }
 
+            const scopeKey = getScopeKey(isAdmin ? null : viewerGroupId);
             const currentSeasonKey = officialRange
-                ? `${officialRange.start}|${officialRange.end}|all`
+                ? `${officialRange.start}|${officialRange.end}|${scopeKey}`
                 : null;
             const rows = currentSeasonKey
                 ? await db.prepare(`
                     SELECT season_key, MIN(finalized_at) as finalized_at
                     FROM ranking_final_results
-                    WHERE season_key LIKE '%|all' AND season_key != ?
+                    WHERE season_key LIKE ? AND season_key != ?
                     GROUP BY season_key
                     ORDER BY season_key DESC
-                `).all(currentSeasonKey)
+                `).all(`%|${scopeKey}`, currentSeasonKey)
                 : await db.prepare(`
                     SELECT season_key, MIN(finalized_at) as finalized_at
                     FROM ranking_final_results
-                    WHERE season_key LIKE '%|all'
+                    WHERE season_key LIKE ?
                     GROUP BY season_key
                     ORDER BY season_key DESC
-                `).all();
+                `).all(`%|${scopeKey}`);
             const seasons = Array.isArray(rows) ? rows.map(row => {
                 const parts = String(row.season_key).split('|');
                 return {
@@ -268,9 +285,9 @@ export async function GET(request) {
             });
         }
 
-        const rankingHidden = Boolean(officialRange?.isHidden);
+        const rankingHidden = Boolean(officialRange?.isHidden) || groupRankingHidden;
         const forceFinalized = Boolean(officialRange?.forceFinalize);
-        if (rankingHidden && !isAdmin) {
+        if (rankingHidden && !isAdmin && !isLeaderOnly) {
             return NextResponse.json({
                 canConfigure: false,
                 isPreview: false,
@@ -291,11 +308,8 @@ export async function GET(request) {
 
         if (isAdmin) {
             visibilityClause = '';
-        } else if (isLeaderOnly && viewerGroupId) {
-            visibilityClause = ' AND u.grupo_id = ?';
-            visibilityParams.push(viewerGroupId);
         } else if (viewerGroupId) {
-            visibilityClause = ' AND u.grupo_id = ?';
+            visibilityClause = ' AND COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?';
             visibilityParams.push(viewerGroupId);
         } else {
             visibilityClause = ' AND u.id = ?';
@@ -319,6 +333,8 @@ export async function GET(request) {
              AND a.completado_en IS NOT NULL
              AND a.completado_en >= ?
              AND a.completado_en <= ?
+            LEFT JOIN proyectos p
+              ON p.id = a.proyecto_id
             WHERE u.activo = 1
               ${visibilityClause}
             GROUP BY u.id, u.nombre, u.avatar_url, u.grupo_id
@@ -421,6 +437,8 @@ export async function GET(request) {
 export async function PATCH(request) {
     try {
         const db = getDb();
+        await ensureAssignmentGroupSnapshotSchema(db);
+        await ensureGroupVisibilityColumns(db);
         const sessionData = await getSessionAndRoles(db);
         if (!sessionData) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -428,8 +446,25 @@ export async function PATCH(request) {
 
         const { session, roles } = sessionData;
         const isAdmin = roles.includes('Administrador');
+        const isLeader = roles.includes('Lider de Grupo');
         if (!isAdmin) {
-            return NextResponse.json({ error: 'No tienes permisos para configurar el ranking.' }, { status: 403 });
+            const body = await request.json();
+            const action = String(body?.action || 'save_range');
+            if (action !== 'set_visibility_group' || !isLeader) {
+                return NextResponse.json({ error: 'No tienes permisos para configurar el ranking.' }, { status: 403 });
+            }
+
+            const hidden = Number(body?.hidden ? 1 : 0);
+            const groupId = session.grupo_id ? Number(session.grupo_id) : null;
+            if (!groupId) {
+                return NextResponse.json({ error: 'No tienes grupo asignado.' }, { status: 400 });
+            }
+            await db.prepare(`
+                UPDATE grupos
+                SET mostrar_ranking = ?
+                WHERE id = ?
+            `).run(hidden ? 0 : 1, groupId);
+            return NextResponse.json({ ok: true, hidden: hidden === 1 });
         }
 
         const body = await request.json();
@@ -474,6 +509,20 @@ export async function PATCH(request) {
                 ok: true,
                 hidden: hidden === 1,
             });
+        }
+
+        if (action === 'set_visibility_group') {
+            const hidden = Number(body?.hidden ? 1 : 0);
+            const groupId = session.grupo_id ? Number(session.grupo_id) : null;
+            if (!groupId) {
+                return NextResponse.json({ error: 'No tienes grupo asignado.' }, { status: 400 });
+            }
+            await db.prepare(`
+                UPDATE grupos
+                SET mostrar_ranking = ?
+                WHERE id = ?
+            `).run(hidden ? 0 : 1, groupId);
+            return NextResponse.json({ ok: true, hidden: hidden === 1 });
         }
 
         if (action === 'finalize') {

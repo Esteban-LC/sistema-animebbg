@@ -15,6 +15,7 @@ const isProd = process.env.NODE_ENV === 'production' || process.env.USE_TURSO ==
 let dbInstance = null;
 let performanceIndexesEnsured = false;
 let suggestionSchemaEnsured = false;
+let assignmentGroupSnapshotEnsured = false;
 
 export function getDb() {
   if (dbInstance) return dbInstance;
@@ -108,6 +109,7 @@ export async function ensurePerformanceIndexes(db) {
     `CREATE INDEX IF NOT EXISTS idx_asignaciones_usuario_estado ON asignaciones(usuario_id, estado)`,
     `CREATE INDEX IF NOT EXISTS idx_asignaciones_proyecto_capitulo_rol_estado ON asignaciones(proyecto_id, capitulo, rol, estado)`,
     `CREATE INDEX IF NOT EXISTS idx_asignaciones_usuario_fecha ON asignaciones(usuario_id, asignado_en DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_asignaciones_grupo_snapshot_estado_fecha ON asignaciones(grupo_id_snapshot, estado, completado_en DESC, asignado_en DESC)`,
   ];
 
   for (const sql of statements) {
@@ -218,6 +220,40 @@ export async function ensureSuggestionSchema(db) {
   suggestionSchemaEnsured = true;
 }
 
+export async function ensureAssignmentGroupSnapshotSchema(db) {
+  if (assignmentGroupSnapshotEnsured || !db?.prepare) return;
+
+  const statements = [
+    `ALTER TABLE asignaciones ADD COLUMN grupo_id_snapshot INTEGER REFERENCES grupos(id)`,
+    `UPDATE asignaciones
+      SET grupo_id_snapshot = (
+        SELECT p.grupo_id
+        FROM proyectos p
+        WHERE p.id = asignaciones.proyecto_id
+      )
+      WHERE grupo_id_snapshot IS NULL
+        AND proyecto_id IS NOT NULL`,
+    `UPDATE asignaciones
+      SET grupo_id_snapshot = (
+        SELECT u.grupo_id
+        FROM usuarios u
+        WHERE u.id = asignaciones.usuario_id
+      )
+      WHERE grupo_id_snapshot IS NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_asignaciones_grupo_snapshot_estado_fecha ON asignaciones(grupo_id_snapshot, estado, completado_en DESC, asignado_en DESC)`,
+  ];
+
+  for (const sql of statements) {
+    try {
+      await db.prepare(sql).run();
+    } catch {
+      // Ignore duplicate-column and transient schema errors.
+    }
+  }
+
+  assignmentGroupSnapshotEnsured = true;
+}
+
 function initTables(db) {
   // We use the synchronous DB instance here because this runs once on startup/import
   // and better-sqlite3 is sync.
@@ -258,9 +294,18 @@ function initTables(db) {
     CREATE TABLE IF NOT EXISTS grupos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nombre TEXT NOT NULL UNIQUE,
+      mostrar_sugerencias INTEGER DEFAULT 1,
+      mostrar_ranking INTEGER DEFAULT 1,
+      mostrar_notificaciones INTEGER DEFAULT 1,
       creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     `);
+  runSafe(`ALTER TABLE grupos ADD COLUMN mostrar_sugerencias INTEGER DEFAULT 1`);
+  runSafe(`ALTER TABLE grupos ADD COLUMN mostrar_ranking INTEGER DEFAULT 1`);
+  runSafe(`ALTER TABLE grupos ADD COLUMN mostrar_notificaciones INTEGER DEFAULT 1`);
+  runSafe(`UPDATE grupos SET mostrar_sugerencias = 1 WHERE mostrar_sugerencias IS NULL`);
+  runSafe(`UPDATE grupos SET mostrar_ranking = 1 WHERE mostrar_ranking IS NULL`);
+  runSafe(`UPDATE grupos SET mostrar_notificaciones = 1 WHERE mostrar_notificaciones IS NULL`);
 
   // Default group
   const hasGroup = db.prepare('SELECT id FROM grupos WHERE nombre = ?').get('Grupo C-4');
@@ -327,6 +372,7 @@ function initTables(db) {
       proyecto_id INTEGER,
       capitulo INTEGER,
       traductor_tipo TEXT CHECK(traductor_tipo IN ('CORE', 'ENG')),
+      grupo_id_snapshot INTEGER REFERENCES grupos(id),
       FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
     );
     `);
@@ -334,6 +380,26 @@ function initTables(db) {
   runSafe(`ALTER TABLE asignaciones ADD COLUMN proyecto_id INTEGER`);
   runSafe(`ALTER TABLE asignaciones ADD COLUMN capitulo INTEGER`);
   runSafe(`ALTER TABLE asignaciones ADD COLUMN traductor_tipo TEXT CHECK(traductor_tipo IN ('CORE', 'ENG'))`);
+  runSafe(`ALTER TABLE asignaciones ADD COLUMN grupo_id_snapshot INTEGER REFERENCES grupos(id)`);
+  runSafe(`
+    UPDATE asignaciones
+    SET grupo_id_snapshot = (
+      SELECT p.grupo_id
+      FROM proyectos p
+      WHERE p.id = asignaciones.proyecto_id
+    )
+    WHERE grupo_id_snapshot IS NULL
+      AND proyecto_id IS NOT NULL
+  `);
+  runSafe(`
+    UPDATE asignaciones
+    SET grupo_id_snapshot = (
+      SELECT u.grupo_id
+      FROM usuarios u
+      WHERE u.id = asignaciones.usuario_id
+    )
+    WHERE grupo_id_snapshot IS NULL
+  `);
 
   // Informes & Sessions
   db.exec(`
@@ -398,6 +464,7 @@ function initTables(db) {
   runSafe(`CREATE INDEX IF NOT EXISTS idx_asignaciones_usuario_estado ON asignaciones(usuario_id, estado)`);
   runSafe(`CREATE INDEX IF NOT EXISTS idx_asignaciones_proyecto_capitulo_rol_estado ON asignaciones(proyecto_id, capitulo, rol, estado)`);
   runSafe(`CREATE INDEX IF NOT EXISTS idx_asignaciones_usuario_fecha ON asignaciones(usuario_id, asignado_en DESC)`);
+  runSafe(`CREATE INDEX IF NOT EXISTS idx_asignaciones_grupo_snapshot_estado_fecha ON asignaciones(grupo_id_snapshot, estado, completado_en DESC, asignado_en DESC)`);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS sugerencia_rondas (
