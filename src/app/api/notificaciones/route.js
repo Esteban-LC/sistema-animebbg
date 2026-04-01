@@ -74,6 +74,57 @@ async function getUnreadCountSafe(db, userId) {
     }
 }
 
+async function cleanupAndFilterNotifications(db, { userId, groupId, limit, includeItems }) {
+    const fetchLimit = Math.min(Math.max(limit * 3, limit), 400);
+    const rawItems = await db.prepare(`
+        SELECT id, usuario_id, tipo, titulo, mensaje, data_json, leida, creado_en
+        FROM notificaciones
+        WHERE usuario_id = ?
+        ORDER BY creado_en DESC, id DESC
+        LIMIT ?
+    `).all(userId, fetchLimit);
+
+    const asignacionIds = [...new Set(
+        (rawItems || [])
+            .map((item) => extractAsignacionId(item))
+            .filter((id) => id !== null)
+    )];
+    const assignmentGroupMap = await getAssignmentGroupMap(db, asignacionIds);
+
+    const items = [];
+    const removeIds = [];
+
+    for (const item of rawItems || []) {
+        const asignacionId = extractAsignacionId(item);
+        if (asignacionId === null) {
+            if (includeItems) items.push(item);
+            continue;
+        }
+
+        const assignmentGroupId = assignmentGroupMap.get(Number(asignacionId));
+        const sameGroup = groupId === null || groupId === undefined
+            ? true
+            : Number(assignmentGroupId) === Number(groupId);
+
+        if (sameGroup) {
+            if (includeItems) items.push(item);
+        } else {
+            removeIds.push(Number(item.id));
+        }
+    }
+
+    if (removeIds.length > 0) {
+        const placeholders = removeIds.map(() => '?').join(', ');
+        await db.prepare(`
+            DELETE FROM notificaciones
+            WHERE usuario_id = ?
+              AND id IN (${placeholders})
+        `).run(userId, ...removeIds);
+    }
+
+    return includeItems ? items.slice(0, limit) : [];
+}
+
 export async function GET(request) {
     try {
         const db = getDb();
@@ -95,69 +146,17 @@ export async function GET(request) {
         const limit = Math.min(Math.max(Number(searchParams.get('limit') || 50), 1), 200);
         const summaryOnly = searchParams.get('summary') === '1';
 
-        if (summaryOnly) {
-            return NextResponse.json({
-                items: [],
-                unread: await getUnreadCountSafe(db, userId),
-            });
-        }
-
-        const fetchLimit = Math.min(Math.max(limit * 3, limit), 400);
         let visibleItems = [];
 
         try {
-            const rawItems = await db.prepare(`
-                SELECT id, usuario_id, tipo, titulo, mensaje, data_json, leida, creado_en
-                FROM notificaciones
-                WHERE usuario_id = ?
-                ORDER BY creado_en DESC, id DESC
-                LIMIT ?
-            `).all(userId, fetchLimit);
-
-            const asignacionIds = [...new Set(
-                (rawItems || [])
-                    .map((item) => extractAsignacionId(item))
-                    .filter((id) => id !== null)
-            )];
-            const assignmentGroupMap = await getAssignmentGroupMap(db, asignacionIds);
-
-            const items = [];
-            const removeIds = [];
-
-            for (const item of rawItems || []) {
-                const asignacionId = extractAsignacionId(item);
-                if (asignacionId === null) {
-                    items.push(item);
-                    continue;
-                }
-
-                const assignmentGroupId = assignmentGroupMap.get(Number(asignacionId));
-                const sameGroup = groupId === null || groupId === undefined
-                    ? true
-                    : Number(assignmentGroupId) === Number(groupId);
-                if (sameGroup) {
-                    items.push(item);
-                } else {
-                    removeIds.push(Number(item.id));
-                }
-            }
-
-            if (removeIds.length > 0) {
-                try {
-                    const placeholders = removeIds.map(() => '?').join(', ');
-                    await db.prepare(`
-                        DELETE FROM notificaciones
-                        WHERE usuario_id = ?
-                          AND id IN (${placeholders})
-                    `).run(userId, ...removeIds);
-                } catch {
-                    // Keep serving notifications even if cleanup fails.
-                }
-            }
-
-            visibleItems = items.slice(0, limit);
+            visibleItems = await cleanupAndFilterNotifications(db, {
+                userId,
+                groupId,
+                limit,
+                includeItems: !summaryOnly,
+            });
         } catch {
-            try {
+            if (!summaryOnly) {
                 const fallbackItems = await db.prepare(`
                     SELECT id, usuario_id, tipo, titulo, mensaje, data_json, leida, creado_en
                     FROM notificaciones
@@ -166,13 +165,11 @@ export async function GET(request) {
                     LIMIT ?
                 `).all(userId, limit);
                 visibleItems = Array.isArray(fallbackItems) ? fallbackItems : [];
-            } catch {
-                visibleItems = [];
             }
         }
 
         return NextResponse.json({
-            items: Array.isArray(visibleItems) ? visibleItems : [],
+            items: summaryOnly ? [] : (Array.isArray(visibleItems) ? visibleItems : []),
             unread: await getUnreadCountSafe(db, userId),
         });
     } catch (error) {
