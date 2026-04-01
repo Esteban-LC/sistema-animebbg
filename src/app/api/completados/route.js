@@ -926,7 +926,7 @@ export async function PATCH(request) {
                     asignado_en, completado_en, informe, drive_url,
                     proyecto_id, capitulo, grupo_id_snapshot
                 )
-                VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?)
+                VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, NULL, NULL, ?, ?, ?, ?)
             `).run(
                 selectedUserId,
                 finalRole,
@@ -990,7 +990,7 @@ export async function PATCH(request) {
                             asignado_en, completado_en, informe, drive_url,
                             proyecto_id, capitulo, grupo_id_snapshot
                         )
-                        VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, NULL, NULL, ?, ?, ?, ?)
                     `).run(
                         user.id,
                         roleGroup.rol,
@@ -1210,7 +1210,7 @@ export async function POST(request) {
                             asignado_en, completado_en, informe, drive_url,
                             proyecto_id, capitulo, grupo_id_snapshot
                         )
-                        VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, 'Completado', CURRENT_TIMESTAMP, NULL, NULL, ?, ?, ?, ?)
                     `).run(
                         systemUserId,
                         roleInfo.rol,

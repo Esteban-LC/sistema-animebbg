@@ -108,10 +108,18 @@ export async function GET(request) {
             if (usePeriodScope && start && end) {
                 query += params.length === 0 ? ' WHERE ' : ' AND ';
                 query += `
-                    COALESCE(a.completado_en, a.asignado_en) >= ?
-                    AND COALESCE(a.completado_en, a.asignado_en) <= ?
+                    (
+                        (a.estado = 'Completado' AND a.completado_en IS NOT NULL AND a.completado_en >= ? AND a.completado_en <= ?)
+                        OR
+                        (a.estado != 'Completado' AND a.asignado_en >= ? AND a.asignado_en <= ?)
+                    )
                 `;
-                params.push(toDateStart(start), toDateEnd(end));
+                params.push(
+                    toDateStart(start),
+                    toDateEnd(end),
+                    toDateStart(start),
+                    toDateEnd(end)
+                );
             }
 
             const stats = await db.prepare(query).get(...params);

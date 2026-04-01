@@ -5,6 +5,7 @@ import { useUser } from '@/context/UserContext';
 import { useToast } from '@/context/ToastContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 interface Asignacion {
     id: number;
@@ -17,6 +18,7 @@ interface Asignacion {
     proyecto_titulo?: string;
     proyecto_imagen?: string;
     capitulo?: number;
+    drive_url?: string | null;
 }
 
 interface Proyecto {
@@ -88,6 +90,48 @@ function normalizeStatus(value: string | undefined) {
     return String(value || '').trim().toLowerCase();
 }
 
+function normalizeUrlValue(value: unknown) {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function isValidDeliveryUrlForRole(role: string, rawUrl: string) {
+    const value = normalizeUrlValue(rawUrl);
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        const host = String(url.hostname || '').toLowerCase();
+        const path = String(url.pathname || '').toLowerCase();
+        const roleLower = String(role || '').toLowerCase();
+
+        if (roleLower === 'traductor') {
+            const isGoogleDoc = host.includes('docs.google.com') && path.includes('/document/');
+            const isDriveFile = host.includes('drive.google.com') && (
+                /\/file\/d\/[^/?#]+/i.test(path) ||
+                (path.includes('/open') && !!url.searchParams.get('id'))
+            );
+            return isGoogleDoc || isDriveFile;
+        }
+
+        if (roleLower === 'typer' || roleLower === 'redrawer') {
+            if (!host.includes('drive.google.com')) return false;
+            const hasFolderPath = /\/drive\/folders\/[^/?#]+/i.test(path);
+            const hasFolderOpenId = path.includes('/open') && !!url.searchParams.get('id');
+            return hasFolderPath || hasFolderOpenId;
+        }
+
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function getDeliveryPlaceholder(role: string) {
+    const roleLower = String(role || '').toLowerCase();
+    if (roleLower === 'traductor') return 'https://docs.google.com/document/d/...';
+    if (roleLower === 'typer' || roleLower === 'redrawer') return 'https://drive.google.com/drive/folders/...';
+    return 'https://...';
+}
+
 export default function StaffPage() {
     const { user } = useUser();
     const { showToast } = useToast();
@@ -100,6 +144,10 @@ export default function StaffPage() {
     const [processingId, setProcessingId] = useState<number | null>(null);
     const [filterStatus, setFilterStatus] = useState('todos');
     const [periodStats, setPeriodStats] = useState<PeriodStats | null>(null);
+    const [completionTarget, setCompletionTarget] = useState<Asignacion | null>(null);
+    const [completionLink, setCompletionLink] = useState('');
+    const [showCompletionConfirm, setShowCompletionConfirm] = useState(false);
+    const [showFinalCompletionConfirm, setShowFinalCompletionConfirm] = useState(false);
 
     const [selfForm, setSelfForm] = useState({
         proyecto_id: '',
@@ -130,8 +178,10 @@ export default function StaffPage() {
     const selfHasTradEng = selfRoles.includes(TRANSLATOR_ENG_ROLE);
     const canUseCoreTranslator = Number(selectedProject?.raw_secundario_activo || 0) === 1;
     const canUseCoreTranslatorForSelf = canUseCoreTranslator && selfHasTradCore;
-    const isLeaderOnly =
+    const isLeaderRole =
         Boolean(selfRoles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo');
+    const canUseStaffTasks = roleOptions.length > 0;
+    const isLeaderOnly = isLeaderRole && !canUseStaffTasks;
 
     const fetchNextChapterOption = async (proyectoId: string, rol: string) => {
         if (!proyectoId || !rol) {
@@ -415,6 +465,62 @@ export default function StaffPage() {
                 return 'text-orange-300 bg-orange-500/10 border-orange-500/30';
             default:
                 return 'text-gray-300 bg-gray-500/10 border-gray-500/30';
+        }
+    };
+
+    const openCompletionFlow = (asignacion: Asignacion) => {
+        setCompletionTarget(asignacion);
+        setCompletionLink(normalizeUrlValue(asignacion.drive_url || ''));
+        setShowCompletionConfirm(false);
+        setShowFinalCompletionConfirm(false);
+    };
+
+    const closeCompletionFlow = () => {
+        if (processingId !== null) return;
+        setCompletionTarget(null);
+        setCompletionLink('');
+        setShowCompletionConfirm(false);
+        setShowFinalCompletionConfirm(false);
+    };
+
+    const continueCompletionFlow = () => {
+        if (!completionTarget) return;
+        if (!isValidDeliveryUrlForRole(completionTarget.rol, completionLink)) {
+            showToast('Debes agregar un enlace de entrega valido antes de marcar como completado.', 'error');
+            return;
+        }
+        setShowCompletionConfirm(true);
+    };
+
+    const confirmCompletionFlow = () => {
+        setShowCompletionConfirm(false);
+        setShowFinalCompletionConfirm(true);
+    };
+
+    const submitCompletionFlow = async () => {
+        if (!completionTarget) return;
+        setProcessingId(completionTarget.id);
+        try {
+            const res = await fetch(`/api/asignaciones/${completionTarget.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    estado: 'Completado',
+                    drive_url: normalizeUrlValue(completionLink),
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data?.error || 'No se pudo marcar como completado');
+            }
+            await fetchAsignaciones();
+            await fetchPeriodStats();
+            closeCompletionFlow();
+            showToast('Tarea completada correctamente', 'success');
+        } catch (error: unknown) {
+            showToast(getErrorMessage(error, 'Error al completar tarea'), 'error');
+        } finally {
+            setProcessingId(null);
         }
     };
 
@@ -713,12 +819,12 @@ export default function StaffPage() {
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                handleStatusUpdate(asig.id, 'Completado');
+                                                            openCompletionFlow(asig);
                                                             }}
                                                             disabled={processingId === asig.id}
                                                             className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold"
                                                         >
-                                                            Terminar
+                                                            Marcar como completado
                                                         </button>
                                                     )}
                                                     <button
@@ -751,6 +857,73 @@ export default function StaffPage() {
                     <span className="material-icons-round text-3xl">emoji_events</span>
                 </button>
             </Link>
+
+            {completionTarget && (
+                <div className="fixed inset-0 z-[55] bg-black/80 flex items-center justify-center p-4">
+                    <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-surface-dark shadow-2xl overflow-hidden">
+                        <div className="p-5 border-b border-gray-800">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-400">Cierre de tarea</p>
+                            <h3 className="text-xl font-display font-bold text-white mt-1">Marcar como completado</h3>
+                            <p className="text-sm text-gray-300 mt-2">
+                                {completionTarget.proyecto_titulo || completionTarget.descripcion}
+                                {completionTarget.capitulo ? ` - Capitulo ${completionTarget.capitulo}` : ''}
+                                {` (${completionTarget.rol})`}
+                            </p>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-xs text-muted-dark font-bold uppercase tracking-wider mb-2">
+                                    Enlace de entrega
+                                </label>
+                                <input
+                                    type="url"
+                                    value={completionLink}
+                                    onChange={(e) => setCompletionLink(e.target.value)}
+                                    className="w-full bg-background-dark border border-gray-700 rounded-xl px-3 py-3 text-white"
+                                    placeholder={getDeliveryPlaceholder(completionTarget.rol)}
+                                />
+                            </div>
+                            <p className="text-[12px] text-muted-dark leading-relaxed">
+                                Al completar, la tarea dejara de verse en tus activas y pasara al historial/completados.
+                            </p>
+                        </div>
+                        <div className="p-5 pt-0 flex gap-3">
+                            <button
+                                onClick={closeCompletionFlow}
+                                disabled={processingId === completionTarget.id}
+                                className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={continueCompletionFlow}
+                                disabled={processingId === completionTarget.id}
+                                className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+                            >
+                                Continuar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <ConfirmModal
+                isOpen={showCompletionConfirm}
+                title="Confirmar cierre"
+                message="Estas seguro de marcar esta tarea como completada? Se registrara el enlace de entrega y saldra de tus tareas activas."
+                onConfirm={confirmCompletionFlow}
+                onCancel={() => setShowCompletionConfirm(false)}
+                confirmText="Si, continuar"
+            />
+
+            <ConfirmModal
+                isOpen={showFinalCompletionConfirm}
+                title="Ultima confirmacion"
+                message="Esta accion finaliza la tarea ahora mismo. Confirma solo si el enlace es el definitivo."
+                onConfirm={submitCompletionFlow}
+                onCancel={() => setShowFinalCompletionConfirm(false)}
+                confirmText={processingId === completionTarget?.id ? 'Guardando...' : 'Completar tarea'}
+            />
         </div>
     );
 }

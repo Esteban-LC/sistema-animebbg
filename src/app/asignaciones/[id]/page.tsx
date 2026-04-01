@@ -199,6 +199,10 @@ export default function DetalleAsignacion() {
     const [showReassignModal, setShowReassignModal] = useState(false);
     const [selectedUser, setSelectedUser] = useState('');
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [showCompleteModal, setShowCompleteModal] = useState(false);
+    const [showCompleteConfirmModal, setShowCompleteConfirmModal] = useState(false);
+    const [showCompleteFinalModal, setShowCompleteFinalModal] = useState(false);
+    const [completionLink, setCompletionLink] = useState('');
 
     const isAdmin = user?.roles?.includes('Administrador');
     const isStaffView = searchParams.get('staff') === '1';
@@ -441,10 +445,10 @@ export default function DetalleAsignacion() {
         }
     };
 
-    const updateEstado = async (nuevoEstado: string) => {
+    const updateEstado = async (nuevoEstado: string, deliveryUrlOverride?: string) => {
         try {
             if (nuevoEstado === 'Completado') {
-                const finalDeliveryUrl = isStaffView ? deliveryUrl : driveUrl;
+                const finalDeliveryUrl = deliveryUrlOverride ?? (isStaffView ? deliveryUrl : driveUrl);
                 if (!isValidDeliveryUrlForRole(asignacion?.rol || '', finalDeliveryUrl)) {
                     showToast('Debes agregar un enlace de entrega valido para este rol antes de terminar.', 'error');
                     return;
@@ -457,6 +461,44 @@ export default function DetalleAsignacion() {
         } catch (error: unknown) {
             showToast(getErrorMessage(error, 'Error al actualizar estado'), 'error');
         }
+    };
+
+    const openCompleteFlow = () => {
+        const initialUrl = isStaffView ? deliveryUrl : driveUrl;
+        setCompletionLink(normalizeUrlValue(initialUrl));
+        setShowCompleteConfirmModal(false);
+        setShowCompleteFinalModal(false);
+        setShowCompleteModal(true);
+    };
+
+    const closeCompleteFlow = () => {
+        setShowCompleteModal(false);
+        setShowCompleteConfirmModal(false);
+        setShowCompleteFinalModal(false);
+    };
+
+    const continueCompleteFlow = () => {
+        if (!isValidDeliveryUrlForRole(asignacion?.rol || '', completionLink)) {
+            showToast('Debes agregar un enlace de entrega valido antes de terminar.', 'error');
+            return;
+        }
+        setShowCompleteConfirmModal(true);
+    };
+
+    const handleCompleteFlowConfirm = () => {
+        setShowCompleteConfirmModal(false);
+        setShowCompleteFinalModal(true);
+    };
+
+    const submitCompleteFlow = async () => {
+        const normalized = normalizeUrlValue(completionLink);
+        if (isStaffView) {
+            setDeliveryUrl(normalized);
+        } else {
+            setDriveUrl(normalized);
+        }
+        await updateEstado('Completado', normalized);
+        closeCompleteFlow();
     };
 
     const submitInforme = async (e: React.FormEvent) => {
@@ -575,7 +617,7 @@ export default function DetalleAsignacion() {
                                 {['Pendiente', 'En Proceso', 'Completado'].map(status => (
                                     <button
                                         key={status}
-                                        onClick={() => updateEstado(status)}
+                                        onClick={() => status === 'Completado' ? openCompleteFlow() : updateEstado(status)}
                                         className={`w-full py-2 rounded-lg text-sm ${asignacion.estado === status ? 'bg-primary text-white' : 'bg-background-dark text-gray-300'}`}
                                     >
                                         {status}
@@ -594,10 +636,10 @@ export default function DetalleAsignacion() {
                                 )}
                                 {asignacion.estado === 'En Proceso' && (
                                     <button
-                                        onClick={() => updateEstado('Completado')}
+                                        onClick={openCompleteFlow}
                                         className="w-full py-2 rounded-lg text-sm bg-emerald-600 text-white"
                                     >
-                                        Terminar
+                                        Marcar como completado
                                     </button>
                                 )}
                             </div>
@@ -905,10 +947,10 @@ export default function DetalleAsignacion() {
                                     )}
                                     {asignacion.estado === 'En Proceso' && (
                                         <button
-                                            onClick={() => updateEstado('Completado')}
+                                            onClick={openCompleteFlow}
                                             className="px-4 py-2 bg-emerald-600 text-white rounded text-sm font-bold"
                                         >
-                                            Terminar
+                                            Marcar como completado
                                         </button>
                                     )}
                                 </div>
@@ -1024,6 +1066,74 @@ export default function DetalleAsignacion() {
                 onCancel={() => setShowConfirmModal(false)}
                 isDanger={true}
                 confirmText="Eliminar"
+            />
+
+            {showCompleteModal && asignacion && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[55] p-4">
+                    <div className="bg-surface-dark rounded-2xl w-full max-w-lg border border-gray-800 shadow-2xl overflow-hidden">
+                        <div className="p-6 border-b border-gray-800">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-400">Cierre de tarea</p>
+                            <h3 className="font-display font-bold text-xl text-white mt-1">Marcar como completado</h3>
+                            <p className="text-sm text-gray-300 mt-2">
+                                {asignacion.proyecto_titulo || asignacion.descripcion}
+                                {asignacion.capitulo ? ` - Capitulo ${asignacion.capitulo}` : ''}
+                                {` (${asignacion.rol})`}
+                            </p>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-xs text-muted-dark font-bold uppercase tracking-wider mb-2">Enlace de entrega</label>
+                                <input
+                                    type="url"
+                                    value={completionLink}
+                                    onChange={(e) => setCompletionLink(e.target.value)}
+                                    className="w-full bg-background-dark border border-gray-700 rounded px-3 py-3 text-white"
+                                    placeholder={getDeliveryPlaceholder(asignacion.rol || '')}
+                                />
+                            </div>
+                            <p className="text-[11px] text-muted-dark">
+                                {isTraductor
+                                    ? 'Traductor: pega el Google Docs o archivo final antes de cerrar.'
+                                    : 'Typer/Redrawer: pega la carpeta final de Drive antes de cerrar.'}
+                            </p>
+                            <p className="text-[12px] text-muted-dark leading-relaxed">
+                                Al completar, esta tarea dejara de mostrarse dentro de tus tareas activas.
+                            </p>
+                        </div>
+                        <div className="p-6 pt-0 flex gap-3">
+                            <button
+                                onClick={closeCompleteFlow}
+                                className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={continueCompleteFlow}
+                                className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+                            >
+                                Continuar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <ConfirmModal
+                isOpen={showCompleteConfirmModal}
+                title="Confirmar cierre"
+                message="Estas seguro de marcar esta tarea como completada? Ya no se mostrara entre tus tareas activas."
+                onConfirm={handleCompleteFlowConfirm}
+                onCancel={() => setShowCompleteConfirmModal(false)}
+                confirmText="Si, continuar"
+            />
+
+            <ConfirmModal
+                isOpen={showCompleteFinalModal}
+                title="Ultima confirmacion"
+                message="Ultima revision: confirma solo si el enlace de entrega ya es el definitivo."
+                onConfirm={submitCompleteFlow}
+                onCancel={() => setShowCompleteFinalModal(false)}
+                confirmText="Completar tarea"
             />
         </div>
     );
