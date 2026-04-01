@@ -936,26 +936,6 @@ export default function DetalleAsignacion() {
                                     Este rol trabaja directo en Drive, agrega o pega el enlace para abrirlo rapido.
                                 </p>
                             )}
-                            {isStaffView && isTraductor && (
-                                <div className="flex gap-2 mb-3">
-                                    {asignacion.estado === 'Pendiente' && (
-                                        <button
-                                            onClick={() => updateEstado('En Proceso')}
-                                            className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold"
-                                        >
-                                            Iniciar
-                                        </button>
-                                    )}
-                                    {asignacion.estado === 'En Proceso' && (
-                                        <button
-                                            onClick={openCompleteFlow}
-                                            className="px-4 py-2 bg-emerald-600 text-white rounded text-sm font-bold"
-                                        >
-                                            Como entregar
-                                        </button>
-                                    )}
-                                </div>
-                            )}
                             {!isStaffView && (
                                 <div className="flex gap-2">
                                     <input
