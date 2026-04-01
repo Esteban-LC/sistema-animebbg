@@ -640,7 +640,7 @@ export default function DetalleAsignacion() {
                                         onClick={openCompleteFlow}
                                         className="w-full py-2 rounded-lg text-sm bg-emerald-600 text-white"
                                     >
-                                        Como entregar
+                                        Entregar
                                     </button>
                                 )}
                             </div>
@@ -952,7 +952,7 @@ export default function DetalleAsignacion() {
                                 <div className="rounded-xl border border-gray-800 bg-surface-darker/40 p-4">
                                     <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-dark">Entrega guiada</p>
                                     <p className="text-[12px] text-muted-dark mt-2">
-                                        Usa el boton <span className="text-white font-semibold">Como entregar</span> para abrir la ventana, pegar el enlace final y confirmar el cierre.
+                                        Usa el boton <span className="text-white font-semibold">Entregar</span> para abrir la ventana, pegar el enlace final y confirmar el cierre.
                                     </p>
                                 </div>
                             )}
@@ -1045,7 +1045,7 @@ export default function DetalleAsignacion() {
                     <div className="bg-surface-dark rounded-2xl w-full max-w-lg border border-gray-800 shadow-2xl overflow-hidden">
                         <div className="p-6 border-b border-gray-800">
                             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-400">Entrega</p>
-                            <h3 className="font-display font-bold text-xl text-white mt-1">Como entregar</h3>
+                            <h3 className="font-display font-bold text-xl text-white mt-1">Entregar</h3>
                             <p className="text-sm text-gray-300 mt-2">
                                 {asignacion.proyecto_titulo || asignacion.descripcion}
                                 {asignacion.capitulo ? ` - Capitulo ${asignacion.capitulo}` : ''}

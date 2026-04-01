@@ -824,7 +824,7 @@ export default function StaffPage() {
                                                             disabled={processingId === asig.id}
                                                             className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold"
                                                         >
-                                                            Como entregar
+                                                            Entregar
                                                         </button>
                                                     )}
                                                     <button
@@ -863,7 +863,7 @@ export default function StaffPage() {
                     <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-surface-dark shadow-2xl overflow-hidden">
                         <div className="p-5 border-b border-gray-800">
                             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-400">Entrega</p>
-                            <h3 className="text-xl font-display font-bold text-white mt-1">Como entregar</h3>
+                            <h3 className="text-xl font-display font-bold text-white mt-1">Entregar</h3>
                             <p className="text-sm text-gray-300 mt-2">
                                 {completionTarget.proyecto_titulo || completionTarget.descripcion}
                                 {completionTarget.capitulo ? ` - Capitulo ${completionTarget.capitulo}` : ''}
