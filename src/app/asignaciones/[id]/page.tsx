@@ -206,7 +206,9 @@ export default function DetalleAsignacion() {
     const [completionLink, setCompletionLink] = useState('');
 
     const isAdmin = user?.roles?.includes('Administrador');
+    const isLeader = user?.roles?.includes('Lider de Grupo');
     const isStaffView = searchParams.get('staff') === '1';
+    const usesManagedCompletionFlow = !isStaffView && Boolean(isAdmin || isLeader);
     const assignmentRole = String(asignacion?.rol || '').toLowerCase();
     const isTraductor = assignmentRole === 'traductor';
     const isTyper = assignmentRole === 'typer';
@@ -234,6 +236,7 @@ export default function DetalleAsignacion() {
     const assignmentFontsSignature = assignmentFontsItems
         .map((item) => `${item.id}:${String(item.font_file_id || '').trim()}`)
         .join('|');
+    const completionActionLabel = usesManagedCompletionFlow ? 'Marcar como completado' : 'Entregar';
 
     const zoomOut = () => setImageZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10));
     const zoomIn = () => setImageZoom((z) => Math.min(3, Math.round((z + 0.1) * 10) / 10));
@@ -615,15 +618,28 @@ export default function DetalleAsignacion() {
                         <p className="text-sm text-gray-300"><strong>Asignado:</strong> {formatActivityDate(asignacion.asignado_en)}</p>
                         {!isStaffView ? (
                             <div className="space-y-2 pt-2">
-                                {['Pendiente', 'En Proceso', 'Completado'].map(status => (
+                                {['Pendiente', 'En Proceso'].map(status => (
                                     <button
                                         key={status}
-                                        onClick={() => status === 'Completado' ? openCompleteFlow() : updateEstado(status)}
+                                        onClick={() => updateEstado(status)}
                                         className={`w-full py-2 rounded-lg text-sm ${asignacion.estado === status ? 'bg-primary text-white' : 'bg-background-dark text-gray-300'}`}
                                     >
                                         {status}
                                     </button>
                                 ))}
+                                {asignacion.estado === 'En Proceso' && (
+                                    <button
+                                        onClick={openCompleteFlow}
+                                        className="w-full py-2 rounded-lg text-sm bg-emerald-600 text-white"
+                                    >
+                                        {completionActionLabel}
+                                    </button>
+                                )}
+                                {asignacion.estado === 'Completado' && (
+                                    <div className="w-full py-2 rounded-lg text-sm bg-emerald-600/15 text-emerald-300 border border-emerald-500/30 text-center">
+                                        Completado
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="space-y-2 pt-2">
@@ -640,7 +656,7 @@ export default function DetalleAsignacion() {
                                         onClick={openCompleteFlow}
                                         className="w-full py-2 rounded-lg text-sm bg-emerald-600 text-white"
                                     >
-                                        Entregar
+                                        {completionActionLabel}
                                     </button>
                                 )}
                             </div>
@@ -936,7 +952,7 @@ export default function DetalleAsignacion() {
                                     Este rol trabaja directo en Drive, agrega o pega el enlace para abrirlo rapido.
                                 </p>
                             )}
-                            {!isStaffView && (
+                            {!isStaffView && !usesManagedCompletionFlow && (
                                 <div className="flex gap-2">
                                     <input
                                         type="url"
@@ -948,11 +964,11 @@ export default function DetalleAsignacion() {
                                     <button onClick={updateDriveUrl} className="bg-primary px-4 py-2 rounded text-white">Guardar</button>
                                 </div>
                             )}
-                            {isStaffView && (
+                            {(isStaffView || usesManagedCompletionFlow) && (
                                 <div className="rounded-xl border border-gray-800 bg-surface-darker/40 p-4">
                                     <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-dark">Entrega guiada</p>
                                     <p className="text-[12px] text-muted-dark mt-2">
-                                        Usa el boton <span className="text-white font-semibold">Entregar</span> para abrir la ventana, pegar el enlace final y confirmar el cierre.
+                                        Usa el boton <span className="text-white font-semibold">{completionActionLabel}</span> para abrir la ventana, pegar el enlace final y confirmar el cierre.
                                     </p>
                                 </div>
                             )}
@@ -1045,7 +1061,7 @@ export default function DetalleAsignacion() {
                     <div className="bg-surface-dark rounded-2xl w-full max-w-lg border border-gray-800 shadow-2xl overflow-hidden">
                         <div className="p-6 border-b border-gray-800">
                             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-400">Entrega</p>
-                            <h3 className="font-display font-bold text-xl text-white mt-1">Entregar</h3>
+                            <h3 className="font-display font-bold text-xl text-white mt-1">{completionActionLabel}</h3>
                             <p className="text-sm text-gray-300 mt-2">
                                 {asignacion.proyecto_titulo || asignacion.descripcion}
                                 {asignacion.capitulo ? ` - Capitulo ${asignacion.capitulo}` : ''}
