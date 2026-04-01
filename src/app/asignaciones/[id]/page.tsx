@@ -13,6 +13,7 @@ interface Asignacion {
     id: number;
     usuario_id: number;
     proyecto_id?: number;
+    proyecto_titulo?: string;
     capitulo?: number;
     rol: string;
     traductor_tipo?: 'CORE' | 'ENG' | null;
