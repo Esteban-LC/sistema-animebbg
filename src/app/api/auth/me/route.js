@@ -11,6 +11,39 @@ async function ensureGroupVisibilityColumns(db) {
     try { await db.prepare('ALTER TABLE grupos ADD COLUMN mostrar_sugerencias INTEGER DEFAULT 1').run(); } catch { }
     try { await db.prepare('ALTER TABLE grupos ADD COLUMN mostrar_ranking INTEGER DEFAULT 1').run(); } catch { }
     try { await db.prepare('ALTER TABLE grupos ADD COLUMN mostrar_notificaciones INTEGER DEFAULT 1').run(); } catch { }
+    // Rango de staff: 1 = Nuevo, 2 = Staff
+    try { await db.prepare('ALTER TABLE usuarios ADD COLUMN rango INTEGER DEFAULT 1').run(); } catch { }
+    // Migración única: set todos los existentes como Staff (rango 2) la primera vez
+    try {
+        await db.prepare(`CREATE TABLE IF NOT EXISTS _migraciones (nombre TEXT PRIMARY KEY)`).run();
+    } catch { }
+    try {
+        const migDone = await db.prepare(`SELECT nombre FROM _migraciones WHERE nombre = 'rango_staff_inicial'`).get();
+        if (!migDone) {
+            await db.prepare('UPDATE usuarios SET rango = 2').run();
+            await db.prepare(`INSERT OR IGNORE INTO _migraciones (nombre) VALUES ('rango_staff_inicial')`).run();
+        }
+    } catch { }
+    // Tabla de solicitudes de asignación para staff Nuevo
+    try {
+        await db.prepare(`
+            CREATE TABLE IF NOT EXISTS solicitudes_asignacion (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+                rol TEXT NOT NULL,
+                estado TEXT NOT NULL DEFAULT 'Pendiente',
+                creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+                atendido_por INTEGER REFERENCES usuarios(id),
+                atendido_en DATETIME
+            )
+        `).run();
+    } catch { }
+    try {
+        await db.prepare(`CREATE INDEX IF NOT EXISTS idx_solicitudes_asignacion_estado ON solicitudes_asignacion(estado, creado_en DESC)`).run();
+    } catch { }
+    // Limpiar tabla residual de migración anterior si existe
+    try { await db.prepare('DROP TABLE IF EXISTS asignaciones_old').run(); } catch { }
+    try { await db.prepare('DROP TABLE IF EXISTS proyectos_old').run(); } catch { }
 }
 
 function getPrimaryRole(roles) {
@@ -67,7 +100,8 @@ export async function GET() {
             },
             roles,
             isAdmin: roles.includes('Administrador'),
-            role: getPrimaryRole(roles)
+            role: getPrimaryRole(roles),
+            rango: Number(user.rango ?? 2),
         };
 
         return NextResponse.json(userData);

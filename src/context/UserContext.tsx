@@ -20,6 +20,7 @@ interface User {
     };
     role?: string; // Legacy support
     isDefaultPassword?: boolean;
+    rango?: number; // 1 = Nuevo, 2 = Staff
 }
 
 interface UserContextType {

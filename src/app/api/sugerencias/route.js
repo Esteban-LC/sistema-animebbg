@@ -60,14 +60,21 @@ async function getViewer(db) {
   if (!user) return null;
 
   const roles = parseRoles(user.roles);
+  const isAdmin = roles.includes('Administrador');
+  const isLeader = roles.includes('Lider de Grupo');
+  const rango = Number(user.rango ?? 2);
+
+  // Rango 1 (Nuevo) no puede acceder a sugerencias
+  if (!isAdmin && !isLeader && rango < 2) return null;
+
   return {
     id: Number(user.id),
     nombre: user.nombre,
     tag: user.tag,
     grupo_id: user.grupo_id ? Number(user.grupo_id) : null,
     grupo_nombre: user.grupo_nombre || null,
-    isAdmin: roles.includes('Administrador'),
-    isLeader: roles.includes('Lider de Grupo'),
+    isAdmin,
+    isLeader,
   };
 }
 

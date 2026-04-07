@@ -172,7 +172,7 @@ export async function POST(request) {
         }
 
         const session = await db.prepare(`
-            SELECT s.usuario_id, u.roles
+            SELECT s.usuario_id, u.roles, COALESCE(u.rango, 2) AS rango
             FROM sessions s
             JOIN usuarios u ON u.id = s.usuario_id
             WHERE s.token = ? AND s.expires_at > datetime('now')
@@ -195,6 +195,11 @@ export async function POST(request) {
         const canAssign = isAdmin || isLeader || isSelfAssign;
         if (!canAssign) {
             return NextResponse.json({ error: 'No tienes permisos para autoasignar a ese usuario' }, { status: 403 });
+        }
+
+        // Verificar rango: solo Staff (rango >= 2) puede usar autoasignacion
+        if (!isAdmin && !isLeader && Number(session.rango) < 2) {
+            return NextResponse.json({ error: 'No tienes acceso a esta funcion todavia' }, { status: 403 });
         }
 
         const catalogColumnExists = await hasCatalogColumn(db);

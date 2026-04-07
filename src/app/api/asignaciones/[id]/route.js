@@ -269,7 +269,16 @@ export async function GET(request, context) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
         }
 
-        return NextResponse.json(asignacion);
+        let responseData = asignacion;
+        if (!auth.isAdmin && !canViewAsLeader) {
+            const { raw_url, raw_eng_url, ...rest } = asignacion;
+            responseData = {
+                ...rest,
+                has_eng_raw: !!raw_url,
+                has_core_raw: !!raw_eng_url,
+            };
+        }
+        return NextResponse.json(responseData);
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }

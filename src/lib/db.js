@@ -317,6 +317,11 @@ function initTables(db) {
   // Default existing users to group 1
   runSafe(`UPDATE usuarios SET grupo_id = 1 WHERE grupo_id IS NULL`);
 
+  // Rango de staff: 1 = Nuevo, 2 = Staff
+  runSafe(`ALTER TABLE usuarios ADD COLUMN rango INTEGER DEFAULT 1`);
+  // Usuarios existentes ya son de confianza, pasan a Staff
+  runSafe(`UPDATE usuarios SET rango = 2 WHERE rango IS NULL OR rango = 0`);
+
   // Proyectos
   db.exec(`
     CREATE TABLE IF NOT EXISTS proyectos (
@@ -530,5 +535,19 @@ function initTables(db) {
     INSERT OR IGNORE INTO sugerencia_votos_items (ronda_id, sugerencia_id, usuario_id, creado_en)
     SELECT ronda_id, sugerencia_id, usuario_id, creado_en
     FROM sugerencia_votos
+  `);
+
+  // Solicitudes de asignación para staff de rango Nuevo
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS solicitudes_asignacion (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      rol TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'Pendiente',
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atendido_por INTEGER REFERENCES usuarios(id),
+      atendido_en DATETIME
+    );
+    CREATE INDEX IF NOT EXISTS idx_solicitudes_asignacion_estado ON solicitudes_asignacion(estado, creado_en DESC);
   `);
 }

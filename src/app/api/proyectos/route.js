@@ -362,7 +362,7 @@ export async function GET() {
 
         if (token) {
             const session = await db.prepare(`
-                SELECT u.roles, u.grupo_id 
+                SELECT u.roles, u.grupo_id, COALESCE(u.rango, 2) AS rango
                 FROM sessions s
                 JOIN usuarios u ON s.usuario_id = u.id
                 WHERE s.token = ? AND s.expires_at > datetime('now')
@@ -371,8 +371,13 @@ export async function GET() {
             if (session) {
                 const roles = JSON.parse(session.roles || '[]');
                 isAdmin = roles.includes('Administrador');
-                // Always get group_id if available, regardless of role
+                const isLeader = roles.includes('Lider de Grupo');
                 groupId = session.grupo_id;
+
+                // Rango 1 (Nuevo) no puede ver proyectos
+                if (!isAdmin && !isLeader && Number(session.rango) < 2) {
+                    return NextResponse.json({ error: 'No tienes acceso a esta funcion todavia' }, { status: 403 });
+                }
             }
         }
 
@@ -661,7 +666,7 @@ export async function POST(request) {
             ts: Date.now(),
         });
 
-        return NextResponse.json({ id: result.lastInsertRowid, message: 'Proyecto creado' });
+        return NextResponse.json({ id: Number(result.lastInsertRowid), message: 'Proyecto creado' });
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }

@@ -5,9 +5,15 @@ import path from 'node:path';
 const GOOGLE_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+const DRIVE_SCOPE_WRITE = 'https://www.googleapis.com/auth/drive';
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 let tokenCache = {
+    accessToken: null,
+    expiresAtMs: 0,
+};
+
+let tokenCacheWrite = {
     accessToken: null,
     expiresAtMs: 0,
 };
@@ -46,12 +52,12 @@ function getEnvConfig() {
     return { clientEmail, privateKey };
 }
 
-function createServiceAccountJwt({ clientEmail, privateKey }) {
+function createServiceAccountJwt({ clientEmail, privateKey }, scope = DRIVE_SCOPE) {
     const nowSec = Math.floor(Date.now() / 1000);
     const header = { alg: 'RS256', typ: 'JWT' };
     const payload = {
         iss: clientEmail,
-        scope: DRIVE_SCOPE,
+        scope,
         aud: GOOGLE_OAUTH_TOKEN_URL,
         iat: nowSec,
         exp: nowSec + 3600,
@@ -105,6 +111,40 @@ async function fetchAccessToken() {
     };
 
     return tokenCache.accessToken;
+}
+
+async function fetchAccessTokenWrite() {
+    const now = Date.now();
+    if (tokenCacheWrite.accessToken && tokenCacheWrite.expiresAtMs > now + 30_000) {
+        return tokenCacheWrite.accessToken;
+    }
+
+    const jwt = createServiceAccountJwt(getEnvConfig(), DRIVE_SCOPE_WRITE);
+    const body = new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: jwt,
+    });
+
+    const res = await fetch(GOOGLE_OAUTH_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+        cache: 'no-store',
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.access_token) {
+        const details = data?.error_description || data?.error || 'No se pudo obtener token de Google';
+        throw new Error(`Google OAuth error (write): ${details}`);
+    }
+
+    const ttl = Number(data.expires_in || 3600);
+    tokenCacheWrite = {
+        accessToken: String(data.access_token),
+        expiresAtMs: now + (ttl * 1000),
+    };
+
+    return tokenCacheWrite.accessToken;
 }
 
 function buildItemUrl(file) {
@@ -827,3 +867,94 @@ export async function catalogFromRoleFolderIds(roleFolderIds = {}) {
         items_en_drive: totalItems,
     };
 }
+
+// ── Funciones de escritura ──────────────────────────────────────────────────
+
+/**
+ * Busca una subcarpeta por nombre dentro de un folder padre.
+ * Retorna el ID si existe, null si no.
+ */
+export async function findFolderInParent(parentId, name) {
+    const token = await fetchAccessTokenWrite();
+    const escaped = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const q = `'${parentId}' in parents and name = '${escaped}' and mimeType = '${DRIVE_FOLDER_MIME}' and trashed = false`;
+    const params = new URLSearchParams({ q, fields: 'files(id,name)', pageSize: '1', supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' });
+    const res = await fetch(`${GOOGLE_DRIVE_FILES_URL}?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    return data?.files?.[0]?.id || null;
+}
+
+/**
+ * Crea una carpeta dentro de un folder padre y retorna su ID.
+ */
+export async function createFolderInParent(parentId, name) {
+    const token = await fetchAccessTokenWrite();
+    const res = await fetch(`${GOOGLE_DRIVE_FILES_URL}?supportsAllDrives=true`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            name,
+            mimeType: DRIVE_FOLDER_MIME,
+            parents: [parentId],
+        }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.id) {
+        throw new Error(`No se pudo crear la carpeta "${name}": ${data?.error?.message || res.status}`);
+    }
+    return data.id;
+}
+
+/**
+ * Obtiene o crea una subcarpeta por nombre dentro de un folder padre.
+ */
+export async function getOrCreateFolder(parentId, name) {
+    const existing = await findFolderInParent(parentId, name);
+    if (existing) return existing;
+    return createFolderInParent(parentId, name);
+}
+
+/**
+ * Sube un archivo (Buffer o Uint8Array) a una carpeta de Drive.
+ * Retorna el objeto con id, name, webViewLink.
+ */
+export async function uploadFileToDrive(folderId, filename, mimeType, data) {
+    const token = await fetchAccessTokenWrite();
+    const metadata = JSON.stringify({ name: filename, parents: [folderId] });
+    const boundary = '-------animebbg_boundary';
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
+
+    const metaPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${metadata}`;
+    const dataPart = `${delimiter}Content-Type: ${mimeType}\r\n\r\n`;
+
+    const metaBytes = Buffer.from(metaPart, 'utf-8');
+    const dataPartBytes = Buffer.from(dataPart, 'utf-8');
+    const closeBytes = Buffer.from(closeDelimiter, 'utf-8');
+    const fileBytes = Buffer.isBuffer(data) ? data : Buffer.from(data);
+
+    const body = Buffer.concat([metaBytes, dataPartBytes, fileBytes, closeBytes]);
+
+    const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,name&supportsAllDrives=true`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': `multipart/related; boundary="${boundary}"`,
+            'Content-Length': String(body.byteLength),
+        },
+        body,
+    });
+
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok || !result?.id) {
+        throw new Error(`No se pudo subir "${filename}": ${result?.error?.message || res.status}`);
+    }
+    return result;
+}
+

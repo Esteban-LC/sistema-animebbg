@@ -97,7 +97,7 @@ export async function POST(request, { params }) {
 
         const stmt = db.prepare('INSERT INTO informes (asignacion_id, mensaje) VALUES (?, ?)');
         const result = await stmt.run(id, mensaje);
-        const informeId = result.lastInsertRowid;
+        const informeId = Number(result.lastInsertRowid);
 
         const informe = await db.prepare('SELECT * FROM informes WHERE id = ?').get(informeId);
 

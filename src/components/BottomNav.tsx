@@ -18,8 +18,9 @@ export default function BottomNav() {
     const isAdmin = user?.isAdmin || roles.includes('Administrador') || user?.role === 'admin';
     const isLeaderOnly = roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo';
     const profileRoleLabel = isAdmin ? 'Administrador' : isLeaderOnly ? 'Lider de Grupo' : 'Staff';
-    const canViewSuggestions = isAdmin || isLeaderOnly || user?.groupSettings?.showSuggestions !== false;
-    const canViewRanking = isAdmin || isLeaderOnly || user?.groupSettings?.showRanking !== false;
+    const isStaffRank = isAdmin || isLeaderOnly || (user?.rango ?? 1) >= 2;
+    const canViewSuggestions = isStaffRank && (isAdmin || isLeaderOnly || user?.groupSettings?.showSuggestions !== false);
+    const canViewRanking = isStaffRank && (isAdmin || isLeaderOnly || user?.groupSettings?.showRanking !== false);
     const canViewNotifications = isAdmin || isLeaderOnly || user?.groupSettings?.showNotifications !== false;
 
     const isActive = (path: string) => {
@@ -71,7 +72,7 @@ export default function BottomNav() {
     } else {
         navItems = [
             { href: '/staff', icon: 'assignment', label: 'Mis Tareas' },
-            { href: '/series', icon: 'auto_stories', label: 'Series' },
+            ...(isStaffRank ? [{ href: '/series', icon: 'auto_stories', label: 'Series' }] : []),
             ...(canViewSuggestions ? [{ href: '/sugerencias', icon: 'how_to_vote', label: 'Suger.' }] : []),
             { href: '/historial', icon: 'history', label: 'Historial' },
         ];

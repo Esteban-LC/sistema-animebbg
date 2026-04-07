@@ -35,7 +35,7 @@ function sortProjectTitlesAlphabetically(projects: ProyectoOption[]) {
 }
 
 export default function AsignacionesPage() {
-    const { user } = useUser();
+    const { user, loading: userLoading } = useUser();
     const { socket } = useSocket();
     const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
     const [proyectos, setProyectos] = useState<ProyectoOption[]>([]);
@@ -43,6 +43,11 @@ export default function AsignacionesPage() {
     const [filterStatus, setFilterStatus] = useState('todos');
     const [filterRole, setFilterRole] = useState('todos');
     const [filterProject, setFilterProject] = useState('todos');
+    const [solicitudesPendientes, setSolicitudesPendientes] = useState(0);
+
+    const roles = user?.roles || [];
+    const isAdmin = roles.includes('Administrador');
+    const isLeader = roles.includes('Lider de Grupo');
 
     useEffect(() => {
         async function fetchProyectos() {
@@ -87,6 +92,14 @@ export default function AsignacionesPage() {
         socket.on('content-changed', handleContentChanged);
         return () => { socket.off('content-changed', handleContentChanged); };
     }, [socket]);
+
+    useEffect(() => {
+        if (userLoading || (!isAdmin && !isLeader)) return;
+        fetch('/api/solicitudes-asignacion')
+            .then(r => r.json())
+            .then(data => setSolicitudesPendientes(Array.isArray(data) ? data.length : 0))
+            .catch(() => {});
+    }, [userLoading, isAdmin, isLeader]);
 
     const projectOptions = useMemo(() => {
         const map = new Map<string, string>();
@@ -164,6 +177,26 @@ export default function AsignacionesPage() {
 
             <div className="flex-1 overflow-y-auto p-4 lg:p-8 pb-32 md:pb-8">
                 <div className="max-w-6xl mx-auto">
+
+                    {/* Banner solicitudes pendientes */}
+                    {(isAdmin || isLeader) && solicitudesPendientes > 0 && (
+                        <Link href="/asignaciones/nueva">
+                            <div className="flex items-center justify-between gap-3 mb-6 px-5 py-4 rounded-xl bg-amber-500/10 border border-amber-500/40 hover:border-amber-500/70 hover:bg-amber-500/15 transition-all cursor-pointer">
+                                <div className="flex items-center gap-3">
+                                    <span className="material-icons-round text-amber-400 text-2xl">assignment_ind</span>
+                                    <div>
+                                        <p className="text-amber-300 font-bold text-sm">
+                                            {solicitudesPendientes === 1
+                                                ? '1 solicitud de asignación pendiente'
+                                                : `${solicitudesPendientes} solicitudes de asignación pendientes`}
+                                        </p>
+                                        <p className="text-amber-400/70 text-xs">Haz clic para ir a Nueva Asignación y atenderlas</p>
+                                    </div>
+                                </div>
+                                <span className="material-icons-round text-amber-400">chevron_right</span>
+                            </div>
+                        </Link>
+                    )}
 
                     {/* Stats - Enhanced */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

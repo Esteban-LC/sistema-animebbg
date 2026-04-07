@@ -20,8 +20,9 @@ export default function Sidebar() {
     const isAdmin = user.isAdmin || roles.includes('Administrador') || user.role === 'admin';
     const isLeaderOnly = roles.includes('Lider de Grupo') || user.role === 'Lider de Grupo';
     const profileRoleLabel = isAdmin ? 'Administrador' : isLeaderOnly ? 'Lider de Grupo' : 'Staff';
-    const canViewSuggestions = isAdmin || isLeaderOnly || user.groupSettings?.showSuggestions !== false;
-    const canViewRanking = isAdmin || isLeaderOnly || user.groupSettings?.showRanking !== false;
+    const isStaffRank = isAdmin || isLeaderOnly || (user.rango ?? 1) >= 2;
+    const canViewSuggestions = isStaffRank && (isAdmin || isLeaderOnly || user.groupSettings?.showSuggestions !== false);
+    const canViewRanking = isStaffRank && (isAdmin || isLeaderOnly || user.groupSettings?.showRanking !== false);
     const canViewNotifications = isAdmin || isLeaderOnly || user.groupSettings?.showNotifications !== false;
 
     // Función para determinar si un link está activo
@@ -328,17 +329,19 @@ export default function Sidebar() {
                                 <div className="text-xs font-bold text-muted-dark uppercase tracking-wider px-4 py-2 mt-2">
                                     General
                                 </div>
-                                <Link
-                                    href="/series"
-                                    onClick={close}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/series')
-                                        ? 'bg-primary/10 text-primary'
-                                        : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
-                                        }`}
-                                >
-                                    <span className="material-icons-round">auto_stories</span>
-                                    <span>Series</span>
-                                </Link>
+                                {isStaffRank && (
+                                    <Link
+                                        href="/series"
+                                        onClick={close}
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/series')
+                                            ? 'bg-primary/10 text-primary'
+                                            : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
+                                            }`}
+                                    >
+                                        <span className="material-icons-round">auto_stories</span>
+                                        <span>Series</span>
+                                    </Link>
+                                )}
                                 <Link
                                     href="/historial"
                                     onClick={close}
@@ -350,28 +353,32 @@ export default function Sidebar() {
                                     <span className="material-icons-round">history</span>
                                     <span>Historial</span>
                                 </Link>
-                                <Link
-                                    href="/sugerencias"
-                                    onClick={close}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/sugerencias')
-                                        ? 'bg-primary/10 text-primary'
-                                        : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
-                                        }`}
-                                >
-                                    <span className="material-icons-round">how_to_vote</span>
-                                    <span>Sugerencias</span>
-                                </Link>
-                                <Link
-                                    href="/ranking"
-                                    onClick={close}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/ranking')
-                                        ? 'bg-primary/10 text-primary'
-                                        : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
-                                        }`}
-                                >
-                                    <span className="material-icons-round">emoji_events</span>
-                                    <span>Ranking</span>
-                                </Link>
+                                {canViewSuggestions && (
+                                    <Link
+                                        href="/sugerencias"
+                                        onClick={close}
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/sugerencias')
+                                            ? 'bg-primary/10 text-primary'
+                                            : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
+                                            }`}
+                                    >
+                                        <span className="material-icons-round">how_to_vote</span>
+                                        <span>Sugerencias</span>
+                                    </Link>
+                                )}
+                                {canViewRanking && (
+                                    <Link
+                                        href="/ranking"
+                                        onClick={close}
+                                        className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all group ${isActive('/ranking')
+                                            ? 'bg-primary/10 text-primary'
+                                            : 'text-muted-dark hover:bg-surface-darker hover:text-primary'
+                                            }`}
+                                    >
+                                        <span className="material-icons-round">emoji_events</span>
+                                        <span>Ranking</span>
+                                    </Link>
+                                )}
                             </>
                         )}
                     </nav>

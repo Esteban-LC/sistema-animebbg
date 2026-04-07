@@ -49,7 +49,7 @@ export async function PATCH(request, { params }) {
     try {
         const { id } = await params;
         const body = await request.json();
-        const { nombre, roles, grupo_id, activo, avatar_url, tag, nombre_creditos } = body;
+        const { nombre, roles, grupo_id, activo, avatar_url, tag, nombre_creditos, rango } = body;
         const db = getDb();
         await ensureUsuariosCreditosColumns(db);
         const token = (await cookies()).get('auth_token')?.value;
@@ -104,6 +104,13 @@ export async function PATCH(request, { params }) {
         if (nombre_creditos !== undefined) {
             updates.push('nombre_creditos = ?');
             queryParams.push(String(nombre_creditos || '').trim() || null);
+        }
+        if (rango !== undefined) {
+            const rangoNum = Number(rango);
+            if (rangoNum === 1 || rangoNum === 2) {
+                updates.push('rango = ?');
+                queryParams.push(rangoNum);
+            }
         }
         if (tag !== undefined) {
             const normalizedTag = normalizeTag(tag);
@@ -172,18 +179,22 @@ export async function DELETE(request, { params }) {
         if (!targetUser) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
 
         // 1. Delete associated data first to avoid FK constraints (or logical orphans)
-
-        // Delete reports from assignments belonging to this user
-        await db.prepare(`
-            DELETE FROM informes 
-            WHERE asignacion_id IN (SELECT id FROM asignaciones WHERE usuario_id = ?)
-        `).run(id);
-
-        // Delete assignments
-        await db.prepare('DELETE FROM asignaciones WHERE usuario_id = ?').run(id);
-
-        // Delete sessions
-        await db.prepare('DELETE FROM sessions WHERE usuario_id = ?').run(id);
+        // Wrapped in try/catch in case of legacy table issues (e.g. asignaciones_old from old migrations)
+        try {
+            await db.prepare(`
+                DELETE FROM informes
+                WHERE asignacion_id IN (SELECT id FROM asignaciones WHERE usuario_id = ?)
+            `).run(id);
+        } catch { }
+        try {
+            await db.prepare('DELETE FROM asignaciones WHERE usuario_id = ?').run(id);
+        } catch { }
+        try {
+            await db.prepare('DELETE FROM solicitudes_asignacion WHERE usuario_id = ?').run(id);
+        } catch { }
+        try {
+            await db.prepare('DELETE FROM sessions WHERE usuario_id = ?').run(id);
+        } catch { }
 
         // 2. Delete the user
         const result = await db.prepare('DELETE FROM usuarios WHERE id = ?').run(id);

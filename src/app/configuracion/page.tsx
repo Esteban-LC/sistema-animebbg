@@ -4,6 +4,50 @@ import { useEffect, useState } from 'react';
 import { useNotifications } from '@/context/NotificationsContext';
 import { useToast } from '@/context/ToastContext';
 import { useUser } from '@/context/UserContext';
+import { useSearchParams } from 'next/navigation';
+
+function DriveOAuthSection() {
+    const searchParams = useSearchParams();
+    const oauthStatus = searchParams.get('drive_oauth');
+    const [connected, setConnected] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        fetch('/api/auth/google/status')
+            .then(r => r.json())
+            .then(d => setConnected(!!d.connected))
+            .catch(() => setConnected(false));
+    }, [oauthStatus]);
+
+    return (
+        <div className="bg-surface-dark p-6 rounded-xl border border-gray-800 shadow-lg">
+            <h3 className="font-display font-bold text-xl text-white mb-2 flex items-center gap-2">
+                <span className="material-icons-round text-primary">cloud_upload</span>
+                Conexión Google Drive
+            </h3>
+            <p className="text-sm text-muted-dark mb-4">
+                Necesaria para que los redrawers puedan subir sus entregables directamente al Drive.
+            </p>
+            {oauthStatus === 'success' && (
+                <p className="text-sm text-emerald-400 mb-3">Drive conectado correctamente.</p>
+            )}
+            {oauthStatus === 'error' && (
+                <p className="text-sm text-red-400 mb-3">Error al conectar Drive. Intenta de nuevo.</p>
+            )}
+            <div className="flex items-center gap-4">
+                <span className={`text-sm font-semibold ${connected ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {connected === null ? 'Verificando...' : connected ? 'Conectado' : 'No conectado'}
+                </span>
+                <a
+                    href="/api/auth/google"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold transition-colors"
+                >
+                    <span className="material-icons-round text-sm">link</span>
+                    {connected ? 'Reconectar cuenta' : 'Conectar cuenta de Google'}
+                </a>
+            </div>
+        </div>
+    );
+}
 
 interface GrupoConfig {
     id: number;
@@ -402,6 +446,10 @@ export default function ConfiguracionPage() {
                                 ))}
                             </div>
                         </div>
+                    )}
+
+                    {isAdmin && (
+                        <DriveOAuthSection />
                     )}
 
                     {/* Guardar */}

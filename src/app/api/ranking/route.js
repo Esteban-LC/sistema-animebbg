@@ -133,7 +133,7 @@ async function getSessionAndRoles(db) {
     if (!token) return null;
 
     const session = await db.prepare(`
-        SELECT s.usuario_id, u.roles, u.grupo_id
+        SELECT s.usuario_id, u.roles, u.grupo_id, COALESCE(u.rango, 2) AS rango
         FROM sessions s
         JOIN usuarios u ON u.id = s.usuario_id
         WHERE s.token = ? AND s.expires_at > datetime('now')
@@ -147,6 +147,12 @@ async function getSessionAndRoles(db) {
     } catch {
         roles = [];
     }
+
+    const isAdmin = roles.includes('Administrador');
+    const isLeader = roles.includes('Lider de Grupo');
+
+    // Rango 1 (Nuevo) no puede ver el ranking
+    if (!isAdmin && !isLeader && Number(session.rango) < 2) return null;
 
     return { session, roles };
 }

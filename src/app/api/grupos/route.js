@@ -85,7 +85,7 @@ export async function POST(request) {
 
         const result = await db.prepare('INSERT INTO grupos (nombre) VALUES (?)').run(nombre);
 
-        return NextResponse.json({ id: result.lastInsertRowid, nombre });
+        return NextResponse.json({ id: Number(result.lastInsertRowid), nombre });
     } catch (error) {
         // Check for unique constraint violation
         if (error.message.includes('UNIQUE constraint failed')) {

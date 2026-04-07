@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUser } from '@/context/UserContext';
 import { useToast } from '@/context/ToastContext';
 
@@ -121,9 +122,18 @@ function formatDisplayDate(dateStr: string): string {
 }
 
 export default function RankingPage() {
-    const { user } = useUser();
+    const { user, loading: userLoading } = useUser();
+    const router = useRouter();
     const { showToast } = useToast();
     const roles = user?.roles || [];
+    const isLeader = roles.includes('Lider de Grupo');
+
+    useEffect(() => {
+        if (userLoading || !user) return;
+        if (!user.isAdmin && !isLeader && (user.rango ?? 1) < 2) {
+            router.replace('/asignaciones');
+        }
+    }, [userLoading, user, isLeader, router]);
     const canManageGroupVisibility = Boolean(user?.grupo_id && (user?.isAdmin || roles.includes('Administrador') || roles.includes('Lider de Grupo')));
     const [canConfigure, setCanConfigure] = useState(false);
     const [duration, setDuration] = useState<DurationMode>('custom');

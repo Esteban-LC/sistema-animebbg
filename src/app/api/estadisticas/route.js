@@ -80,14 +80,14 @@ export async function GET(request) {
 
         const responseData = await getCachedValue(cacheKey, STATS_CACHE_TTL_MS, async () => {
             let query = `
-                SELECT 
+                SELECT
                     COUNT(*) as total_asignaciones,
-                    SUM(CASE WHEN estado = 'Completado' THEN 1 ELSE 0 END) as completadas,
-                    SUM(CASE WHEN estado = 'Pendiente' THEN 1 ELSE 0 END) as pendientes,
-                    SUM(CASE WHEN estado = 'En Proceso' THEN 1 ELSE 0 END) as en_proceso,
-                    SUM(CASE WHEN rol = 'Redrawer' THEN 1 ELSE 0 END) as redraw,
-                    SUM(CASE WHEN rol = 'Traductor' THEN 1 ELSE 0 END) as traduccion,
-                    SUM(CASE WHEN rol = 'Typer' THEN 1 ELSE 0 END) as typeo
+                    SUM(CASE WHEN a.estado = 'Completado' THEN 1 ELSE 0 END) as completadas,
+                    SUM(CASE WHEN a.estado = 'Pendiente' THEN 1 ELSE 0 END) as pendientes,
+                    SUM(CASE WHEN a.estado = 'En Proceso' THEN 1 ELSE 0 END) as en_proceso,
+                    SUM(CASE WHEN a.rol = 'Redrawer' THEN 1 ELSE 0 END) as redraw,
+                    SUM(CASE WHEN a.rol = 'Traductor' THEN 1 ELSE 0 END) as traduccion,
+                    SUM(CASE WHEN a.rol = 'Typer' THEN 1 ELSE 0 END) as typeo
                 FROM asignaciones a
                 JOIN usuarios u ON a.usuario_id = u.id
                 LEFT JOIN proyectos p ON a.proyecto_id = p.id
@@ -112,6 +112,7 @@ export async function GET(request) {
                         (a.estado = 'Completado' AND a.completado_en IS NOT NULL AND a.completado_en >= ? AND a.completado_en <= ?)
                         OR
                         (a.estado != 'Completado' AND a.asignado_en >= ? AND a.asignado_en <= ?)
+
                     )
                 `;
                 params.push(
@@ -129,7 +130,7 @@ export async function GET(request) {
                 let historicalQuery = `
                     SELECT
                         COUNT(*) as total_historico,
-                        SUM(CASE WHEN estado = 'Completado' THEN 1 ELSE 0 END) as completadas_historico
+                        SUM(CASE WHEN a.estado = 'Completado' THEN 1 ELSE 0 END) as completadas_historico
                     FROM asignaciones a
                     JOIN usuarios u ON a.usuario_id = u.id
                     LEFT JOIN proyectos p ON a.proyecto_id = p.id

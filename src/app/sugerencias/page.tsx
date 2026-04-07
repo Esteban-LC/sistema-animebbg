@@ -1,6 +1,7 @@
 'use client';
 
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUser } from '@/context/UserContext';
 import { useToast } from '@/context/ToastContext';
 import { ConfirmModal } from '@/components/ConfirmModal';
@@ -220,7 +221,8 @@ function CoverCard({
 }
 
 export default function SugerenciasPage() {
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
+  const router = useRouter();
   const { showToast } = useToast();
   const { socket } = useSocket();
   const [activeTab, setActiveTab] = useState<TabKey>('actuales');
@@ -245,6 +247,13 @@ export default function SugerenciasPage() {
   const isLeader = roles.includes('Lider de Grupo');
   const groupSuggestionsVisible = user?.groupSettings?.showSuggestions !== false;
   const canViewSuggestions = Boolean(user?.isAdmin || roles.includes('Administrador') || isLeader || groupSuggestionsVisible);
+
+  useEffect(() => {
+    if (userLoading || !user) return;
+    if (!user.isAdmin && !isLeader && (user.rango ?? 1) < 2) {
+      router.replace('/asignaciones');
+    }
+  }, [userLoading, user, isLeader, router]);
   const canManageGroupVisibility = Boolean(user?.grupo_id && canManage);
 
   if (user && !canViewSuggestions && !canManageGroupVisibility) {

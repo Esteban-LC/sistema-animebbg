@@ -115,7 +115,7 @@ function sortProjectsAlphabetically(projects: Proyecto[]) {
 }
 
 function NuevaAsignacionContent() {
-    const { user } = useUser();
+    const { user, loading: userLoading } = useUser();
     const router = useRouter();
     const searchParams = useSearchParams();
     const preSelectedUser = searchParams.get('usuario_id') || '';
@@ -126,11 +126,48 @@ function NuevaAsignacionContent() {
     const isAdmin = roles.includes('Administrador') || user?.role === 'admin';
     const isLeader = roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo';
 
+    // Redirigir si rango insuficiente
+    useEffect(() => {
+        if (userLoading || !user) return;
+        if (!isAdmin && !isLeader && (user.rango ?? 1) < 2) {
+            router.replace('/asignaciones');
+        }
+    }, [userLoading, user, isAdmin, isLeader, router]);
+
     const [usuarios, setUsuarios] = useState<Usuario[]>([]);
     const [proyectos, setProyectos] = useState<Proyecto[]>([]);
     const [capitulos, setCapitulos] = useState<Capitulo[]>([]);
     const [mostrarReasignar, setMostrarReasignar] = useState(false);
     const [rolesDisponiblesUsuario, setRolesDisponiblesUsuario] = useState<string[]>([]);
+
+    type Solicitud = { id: number; usuario_id: number; usuario_nombre: string; rol: string; creado_en: string; };
+    const [solicitudes, setSolicitudes] = useState<Solicitud[]>([]);
+    const [atendiendoId, setAtendiendoId] = useState<number | null>(null);
+
+    const fetchSolicitudes = async () => {
+        if (!isAdmin && !isLeader) return;
+        try {
+            const res = await fetch('/api/solicitudes-asignacion');
+            if (res.ok) setSolicitudes(await res.json());
+        } catch { /* silent */ }
+    };
+
+    const handleAtender = async (solicitud: Solicitud) => {
+        setAtendiendoId(solicitud.id);
+        try {
+            await fetch('/api/solicitudes-asignacion', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: solicitud.id }),
+            });
+            setSolicitudes(prev => prev.filter(s => s.id !== solicitud.id));
+        } finally {
+            setAtendiendoId(null);
+        }
+        // Pre-seleccionar usuario y rol en el formulario
+        setFormData(prev => ({ ...prev, usuario_id: String(solicitud.usuario_id), rol: solicitud.rol }));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
 
     const [formData, setFormData] = useState({
         proyecto_id: '',
@@ -181,7 +218,12 @@ function NuevaAsignacionContent() {
                 const visibles = list.filter((p) => !['pausado', 'cancelado'].includes(normalizeStatus(p?.estado)));
                 setProyectos(sortProjectsAlphabetically(visibles));
             });
+
     }, []);
+
+    useEffect(() => {
+        if (!userLoading && (isAdmin || isLeader)) fetchSolicitudes();
+    }, [userLoading, isAdmin, isLeader]);
 
     useEffect(() => {
         if (formData.proyecto_id) {
@@ -359,6 +401,34 @@ function NuevaAsignacionContent() {
                     <h1 className="font-display font-bold text-3xl text-white uppercase tracking-wider">Nueva Asignacion</h1>
                     <p className="text-muted-dark text-sm mt-1">Asigna una tarea o sortea un proyecto para tomar su siguiente capitulo disponible</p>
                 </div>
+
+                {/* ── Solicitudes pendientes de staff Nuevo ── */}
+                {(isAdmin || isLeader) && solicitudes.length > 0 && (
+                    <div className="bg-surface-dark border border-yellow-500/30 rounded-xl p-5 mb-6">
+                        <p className="text-xs font-bold text-yellow-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                            <span className="material-icons-round text-sm">notification_important</span>
+                            Solicitudes de asignacion pendientes ({solicitudes.length})
+                        </p>
+                        <div className="space-y-3">
+                            {solicitudes.map(s => (
+                                <div key={s.id} className="flex items-center justify-between gap-3 bg-background-dark rounded-lg px-4 py-3 border border-gray-700">
+                                    <div>
+                                        <p className="text-sm font-semibold text-white">{s.usuario_nombre}</p>
+                                        <p className="text-xs text-muted-dark">Rol solicitado: <span className="text-primary font-bold">{s.rol}</span></p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAtender(s)}
+                                        disabled={atendiendoId === s.id}
+                                        className="shrink-0 bg-primary hover:bg-primary-dark text-white text-xs font-bold px-3 py-2 rounded-lg disabled:opacity-50 transition-colors"
+                                    >
+                                        {atendiendoId === s.id ? 'Cargando...' : 'Asignar'}
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 <div className="bg-surface-dark p-8 rounded-xl border border-gray-800 shadow-xl">
                     <form onSubmit={handleSubmit} className="space-y-6">

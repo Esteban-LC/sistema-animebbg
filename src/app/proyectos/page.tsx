@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSidebar } from '@/context/SidebarContext';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { useSocket } from '@/context/SocketContext';
@@ -363,7 +364,8 @@ function getCreditosStatus(config: CreditosConfig | null | undefined): 'full' | 
 export default function ProyectosPage() {
     const { toggle } = useSidebar();
     const { socket } = useSocket();
-    const { user } = useUser();
+    const { user, loading: userLoading } = useUser();
+    const router = useRouter();
     const [proyectos, setProyectos] = useState<Proyecto[]>([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -395,6 +397,14 @@ export default function ProyectosPage() {
     const hasProductionRole = roles.some((role) => productionRoles.includes(role));
     const isAdmin = Boolean(user?.isAdmin || roles.includes('Administrador') || user?.role === 'admin');
     const isLeaderOnly = roles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo';
+
+    // Redirigir si rango insuficiente
+    useEffect(() => {
+        if (userLoading || !user) return;
+        if (!isAdmin && !isLeaderOnly && (user.rango ?? 1) < 2) {
+            router.replace('/asignaciones');
+        }
+    }, [userLoading, user, isAdmin, isLeaderOnly, router]);
     const canViewProjectConfigIndicators = Boolean(
         isAdmin
         || isLeaderOnly

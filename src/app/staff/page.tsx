@@ -158,6 +158,14 @@ export default function StaffPage() {
     const [assigning, setAssigning] = useState(false);
     const [assignMode, setAssignMode] = useState<AssignMode>('normal');
 
+    // Solicitud de asignación para rango Nuevo
+    const [solicitudRol, setSolicitudRol] = useState('');
+    const [solicitudEnviada, setSolicitudEnviada] = useState(false);
+    const [solicitudPendiente, setSolicitudPendiente] = useState(false);
+    const [solicitudLoading, setSolicitudLoading] = useState(false);
+
+    const isNuevo = !user?.isAdmin && !(user?.roles || []).includes('Lider de Grupo') && (user?.rango ?? 1) < 2;
+
     const userRoles = useMemo(
         () => resolveAvailableRoles(user?.roles || []),
         [user?.roles]
@@ -245,21 +253,34 @@ export default function StaffPage() {
 
     useEffect(() => {
         if (!user) return;
-        Promise.all([
+        const tasks: Promise<unknown>[] = [
             fetchAsignaciones(),
             fetchPeriodStats(),
-            fetch('/api/proyectos')
-                .then((r) => r.json())
-                .then((d) => {
-                    const list = Array.isArray(d) ? d : [];
-                    const activos = list.filter((p: Proyecto) => !['pausado', 'cancelado'].includes(normalizeStatus(p.estado)));
-                    const scoped = user?.grupo_id
-                        ? activos.filter((p: Proyecto) => Number(p.grupo_id) === Number(user.grupo_id))
-                        : activos;
-                    setProyectos(scoped.length > 0 ? scoped : activos);
-                }),
-        ]).finally(() => setLoading(false));
-    }, [user]);
+        ];
+        if (!isNuevo) {
+            tasks.push(
+                fetch('/api/proyectos')
+                    .then((r) => r.json())
+                    .then((d) => {
+                        const list = Array.isArray(d) ? d : [];
+                        const activos = list.filter((p: Proyecto) => !['pausado', 'cancelado'].includes(normalizeStatus(p.estado)));
+                        const scoped = user?.grupo_id
+                            ? activos.filter((p: Proyecto) => Number(p.grupo_id) === Number(user.grupo_id))
+                            : activos;
+                        setProyectos(scoped.length > 0 ? scoped : activos);
+                    }).catch(() => {})
+            );
+        }
+        if (isNuevo) {
+            tasks.push(
+                fetch('/api/solicitudes-asignacion', { method: 'GET' })
+                    .then(r => r.json())
+                    .then(d => { if (d?.pendiente) setSolicitudPendiente(true); })
+                    .catch(() => {})
+            );
+        }
+        Promise.all(tasks).finally(() => setLoading(false));
+    }, [user, isNuevo]);
 
     useEffect(() => {
         if (!user) return;
@@ -433,6 +454,27 @@ export default function StaffPage() {
         }
     };
 
+    const handleSolicitudAsignacion = async () => {
+        if (!solicitudRol) return;
+        setSolicitudLoading(true);
+        try {
+            const res = await fetch('/api/solicitudes-asignacion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rol: solicitudRol }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'No se pudo enviar la solicitud');
+            setSolicitudEnviada(true);
+            setSolicitudPendiente(true);
+            showToast('Solicitud enviada. Un admin/lider te asignara pronto.', 'success');
+        } catch (error: unknown) {
+            showToast(getErrorMessage(error, 'Error'), 'error');
+        } finally {
+            setSolicitudLoading(false);
+        }
+    };
+
     const filtered = asignaciones.filter(a => {
         if (filterStatus !== 'todos' && a.estado !== filterStatus) return false;
         return true;
@@ -539,7 +581,46 @@ export default function StaffPage() {
             <div className="flex-1 overflow-y-auto p-4 lg:p-8 pb-32 md:pb-8">
                 <div className="max-w-6xl mx-auto space-y-6">
                     <div className="bg-surface-dark p-4 rounded-xl border border-gray-800">
-                        <p className="text-xs font-bold text-muted-dark uppercase tracking-wider mb-3">Autoasignacion</p>
+                        <p className="text-xs font-bold text-muted-dark uppercase tracking-wider mb-3">
+                            {isNuevo ? 'Solicitar Asignacion' : 'Autoasignacion'}
+                        </p>
+
+                        {/* ── RANGO NUEVO: formulario de solicitud ── */}
+                        {isNuevo ? (
+                            <div className="space-y-3">
+                                {solicitudPendiente || solicitudEnviada ? (
+                                    <div className="p-4 rounded-xl border border-yellow-500/40 bg-yellow-500/10 text-center">
+                                        <span className="material-icons-round text-yellow-400 text-2xl mb-1 block">hourglass_top</span>
+                                        <p className="text-sm text-yellow-200 font-semibold">Solicitud enviada</p>
+                                        <p className="text-xs text-yellow-300/70 mt-1">Un admin o lider de grupo te asignara en breve.</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <select
+                                            value={solicitudRol}
+                                            onChange={e => setSolicitudRol(e.target.value)}
+                                            className="w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white"
+                                        >
+                                            <option value="">Selecciona tu rol...</option>
+                                            {roleOptions.map(r => (
+                                                <option key={r} value={r}>{r}</option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            onClick={handleSolicitudAsignacion}
+                                            disabled={!solicitudRol || solicitudLoading}
+                                            className="w-full rounded-lg py-2.5 font-bold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50 transition-colors"
+                                        >
+                                            {solicitudLoading ? 'Enviando...' : 'SOLICITAR ASIGNACION'}
+                                        </button>
+                                        <p className="text-[11px] text-muted-dark">
+                                            Tu solicitud llegara al admin o lider de tu grupo para que te asignen un capitulo.
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                        <>
                         {hasActiveSelfAssignment && activeSelfAssignment && (
                             <div className="mb-4 flex justify-center">
                                 <div className="w-full max-w-2xl text-center p-4 rounded-xl border border-yellow-500/50 bg-yellow-500/10 shadow-[0_0_28px_rgba(234,179,8,0.2)] animate-pulse">
@@ -679,6 +760,8 @@ export default function StaffPage() {
                         <p className="text-[11px] text-muted-dark">
                             <span className="text-blue-400 font-semibold">Ruleta:</span> sortea el proyecto y asigna el siguiente capitulo disponible de ese proyecto.
                         </p>
+                        </>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

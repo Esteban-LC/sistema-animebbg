@@ -26,6 +26,8 @@ interface Asignacion {
     drive_url?: string;
     raw_url?: string;
     raw_eng_url?: string;
+    has_core_raw?: boolean;
+    has_eng_raw?: boolean;
     core_raw_label?: string;
 }
 
@@ -204,6 +206,14 @@ export default function DetalleAsignacion() {
     const [showCompleteConfirmModal, setShowCompleteConfirmModal] = useState(false);
     const [showCompleteFinalModal, setShowCompleteFinalModal] = useState(false);
     const [completionLink, setCompletionLink] = useState('');
+    const [zipDownloading, setZipDownloading] = useState(false);
+    const [redrawZipFile, setRedrawZipFile] = useState<File | null>(null);
+    const [redrawUploading, setRedrawUploading] = useState(false);
+    const [cleanCapsDownloading, setCleanCapsDownloading] = useState(false);
+    const [showTraduccionModal, setShowTraduccionModal] = useState(false);
+    const [traduccionHtml, setTraduccionHtml] = useState('');
+    const [traduccionLoading, setTraduccionLoading] = useState(false);
+    const [traduccionError, setTraduccionError] = useState('');
 
     const isAdmin = user?.roles?.includes('Administrador');
     const isLeader = user?.roles?.includes('Lider de Grupo');
@@ -212,6 +222,7 @@ export default function DetalleAsignacion() {
     const assignmentRole = String(asignacion?.rol || '').toLowerCase();
     const isTraductor = assignmentRole === 'traductor';
     const isTyper = assignmentRole === 'typer';
+    const isRedrawer = assignmentRole === 'redrawer';
     const isTyperOrRedrawer = assignmentRole === 'typer' || assignmentRole === 'redrawer';
     const isTyperInProgress = isTyper && String(asignacion?.estado || '') === 'En Proceso';
     const isTraductorInProgress = isTraductor && String(asignacion?.estado || '') === 'En Proceso';
@@ -220,8 +231,8 @@ export default function DetalleAsignacion() {
     const engRawUrl = normalizeUrlValue(asignacion?.raw_url);
     const coreRawUrl = normalizeUrlValue(asignacion?.raw_eng_url);
     const coreRawLabel = String(asignacion?.core_raw_label || 'KO/JAP');
-    const hasCoreRaw = !!coreRawUrl;
-    const hasEngRaw = !!engRawUrl;
+    const hasCoreRaw = !!coreRawUrl || !!asignacion?.has_core_raw;
+    const hasEngRaw = !!engRawUrl || !!asignacion?.has_eng_raw;
     const canToggleRawVariant = isTraductor || isTyper;
     const activeRawVariant = selectedRawVariant === 'ENG' && hasEngRaw ? 'ENG' : (hasCoreRaw ? 'CORE' : 'ENG');
     const selectedRawUrl = activeRawVariant === 'ENG' ? engRawUrl : coreRawUrl;
@@ -287,7 +298,9 @@ export default function DetalleAsignacion() {
     }, [id, socket]);
 
     useEffect(() => {
-        if (!isTraductor || viewerDriveLinkType !== 'folder' || !viewerDriveUrl) {
+        const hasAnyRaw = hasCoreRaw || hasEngRaw;
+        const canViewRaw = isTraductor ? isTraductorInProgress : isTyper;
+        if (!canViewRaw || !hasAnyRaw) {
             setDriveImages([]);
             setDriveImagesError('');
             setDriveImagesLoading(false);
@@ -302,7 +315,7 @@ export default function DetalleAsignacion() {
         setSelectedImageIndex(0);
         setImageZoom(1);
 
-        fetch(`/api/drive/folder-images?url=${encodeURIComponent(viewerDriveUrl)}`)
+        fetch(`/api/drive/folder-images-for-assignment?id=${id}&variant=${activeRawVariant}`)
             .then(async (res) => {
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) {
@@ -325,7 +338,7 @@ export default function DetalleAsignacion() {
             });
 
         return () => { active = false; };
-    }, [isTraductor, viewerDriveLinkType, viewerDriveUrl]);
+    }, [isTraductor, isTraductorInProgress, isTyper, id, activeRawVariant, hasCoreRaw, hasEngRaw]);
 
     useEffect(() => {
         if (hasCoreRaw && hasEngRaw) {
@@ -575,6 +588,105 @@ export default function DetalleAsignacion() {
         }
     };
 
+    const submitRedrawZip = async () => {
+        if (!redrawZipFile || redrawUploading) return;
+        setRedrawUploading(true);
+        try {
+            const form = new FormData();
+            form.append('assignment_id', id);
+            form.append('zip_file', redrawZipFile);
+            const res = await fetch('/api/drive/upload-redraw', { method: 'POST', body: form });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                showToast(data?.error || 'Error al subir el archivo', 'error');
+                return;
+            }
+            showToast(`Subido correctamente (${data.uploaded} imagenes). Asignacion completada.`, 'success');
+            setRedrawZipFile(null);
+            closeCompleteFlow();
+            setAsignacion(prev => prev ? { ...prev, estado: 'Completado', drive_url: data.folder_url } : null);
+            socket?.emit('content-changed');
+        } catch {
+            showToast('Error al subir el zip', 'error');
+        } finally {
+            setRedrawUploading(false);
+        }
+    };
+
+    const openTraduccionModal = async () => {
+        setShowTraduccionModal(true);
+        if (traduccionHtml) return;
+        setTraduccionLoading(true);
+        setTraduccionError('');
+        try {
+            const res = await fetch(`/api/drive/traduccion-preview?id=${id}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setTraduccionError(data?.error || 'No se pudo cargar la traduccion');
+                return;
+            }
+            setTraduccionHtml(data.html || '');
+        } catch {
+            setTraduccionError('Error al cargar la traduccion');
+        } finally {
+            setTraduccionLoading(false);
+        }
+    };
+
+    const downloadCleanCaps = async () => {
+        if (cleanCapsDownloading) return;
+        setCleanCapsDownloading(true);
+        try {
+            const res = await fetch(`/api/drive/download-clean-caps?id=${id}`);
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                showToast(data?.error || 'No se pudieron descargar los caps limpios', 'error');
+                return;
+            }
+            const disposition = res.headers.get('Content-Disposition') || '';
+            const nameMatch = disposition.match(/filename="([^"]+)"/);
+            const filename = nameMatch?.[1] || `caps_limpios_${id}.zip`;
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch {
+            showToast('Error al descargar caps limpios', 'error');
+        } finally {
+            setCleanCapsDownloading(false);
+        }
+    };
+
+    const downloadChapterZip = async (variant: 'CORE' | 'ENG') => {
+        if (zipDownloading) return;
+        setZipDownloading(true);
+        try {
+            const res = await fetch(`/api/drive/download-chapter-zip?id=${id}&variant=${variant}`);
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                showToast(data?.error || 'No se pudo descargar el zip', 'error');
+                return;
+            }
+            const disposition = res.headers.get('Content-Disposition') || '';
+            const nameMatch = disposition.match(/filename="([^"]+)"/);
+            const filename = nameMatch?.[1] || `capitulo_${id}_${variant}.zip`;
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch {
+            showToast('Error al descargar el zip', 'error');
+        } finally {
+            setZipDownloading(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex-1 flex items-center justify-center bg-background-dark">
@@ -668,7 +780,7 @@ export default function DetalleAsignacion() {
                             <h3 className="text-sm text-white mb-3">
                                 {isTraductor ? 'Visualizador de paginas (Drive)' : 'Drive'}
                             </h3>
-                            {viewerDriveUrl && (
+                            {viewerDriveUrl && !isTraductor && !isRedrawer && !isTyper && (
                                 <a
                                     href={viewerDriveUrl}
                                     target="_blank"
@@ -681,7 +793,8 @@ export default function DetalleAsignacion() {
                             )}
                             {canSeeRawControls && (engRawUrl || coreRawUrl) && (
                                 <div className="mb-3 space-y-2">
-                                    {canToggleRawVariant && hasCoreRaw && hasEngRaw && (
+                                    {/* Botones de variante solo para roles que no tienen visor inline (Redrawer) */}
+                                    {canToggleRawVariant && isRedrawer && hasCoreRaw && hasEngRaw && (
                                         <div className="inline-flex rounded-lg border border-gray-700 bg-background-dark p-1">
                                             <button
                                                 type="button"
@@ -700,19 +813,7 @@ export default function DetalleAsignacion() {
                                         </div>
                                     )}
 
-                                    {canToggleRawVariant ? (
-                                        selectedRawUrl && (
-                                            <a
-                                                href={selectedRawUrl}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="inline-flex items-center gap-2 text-xs bg-blue-500/15 border border-blue-500/30 text-blue-300 px-3 py-2 rounded-lg hover:bg-blue-500/25"
-                                            >
-                                                <span className="material-icons-round text-sm">library_books</span>
-                                                {`Abrir ${selectedRawLabel}`}
-                                            </a>
-                                        )
-                                    ) : (
+                                    {canToggleRawVariant ? null : (
                                         <div className="flex flex-wrap gap-2">
                                             {engRawUrl && (
                                                 <a
@@ -740,9 +841,84 @@ export default function DetalleAsignacion() {
                                     )}
                                 </div>
                             )}
-                            {isTraductor && viewerDriveLinkType === 'folder' && (
+                            {isRedrawer && (hasCoreRaw || hasEngRaw) && (
+                                <div className="mb-3 space-y-2">
+                                    <p className="text-xs text-muted-dark">Descarga los raws de tu capitulo para trabajarlos:</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {hasCoreRaw && (
+                                            <button
+                                                type="button"
+                                                onClick={() => downloadChapterZip('CORE')}
+                                                disabled={zipDownloading}
+                                                className="inline-flex items-center gap-2 text-xs bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 px-3 py-2 rounded-lg hover:bg-cyan-500/25 disabled:opacity-50"
+                                            >
+                                                <span className="material-icons-round text-sm">download</span>
+                                                {zipDownloading ? 'Descargando...' : `Descargar RAW ${coreRawLabel} (.zip)`}
+                                            </button>
+                                        )}
+                                        {hasEngRaw && (
+                                            <button
+                                                type="button"
+                                                onClick={() => downloadChapterZip('ENG')}
+                                                disabled={zipDownloading}
+                                                className="inline-flex items-center gap-2 text-xs bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 px-3 py-2 rounded-lg hover:bg-indigo-500/25 disabled:opacity-50"
+                                            >
+                                                <span className="material-icons-round text-sm">download</span>
+                                                {zipDownloading ? 'Descargando...' : 'Descargar RAW ENG (.zip)'}
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                            {isTyper && isTyperInProgress && (
+                                <div className="mb-3 space-y-2">
+                                    <p className="text-xs text-muted-dark">Material de trabajo:</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={downloadCleanCaps}
+                                            disabled={cleanCapsDownloading}
+                                            className="inline-flex items-center gap-2 text-xs bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 px-3 py-2 rounded-lg hover:bg-emerald-500/25 disabled:opacity-50"
+                                        >
+                                            <span className="material-icons-round text-sm">download</span>
+                                            {cleanCapsDownloading ? 'Descargando...' : 'Descargar Caps Limpios (.zip)'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={openTraduccionModal}
+                                            className="inline-flex items-center gap-2 text-xs bg-violet-500/15 border border-violet-500/30 text-violet-300 px-3 py-2 rounded-lg hover:bg-violet-500/25"
+                                        >
+                                            <span className="material-icons-round text-sm">translate</span>
+                                            Ver Traduccion
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                            {(isTraductor ? (viewerDriveLinkType === 'folder') : isTyper) && (hasCoreRaw || hasEngRaw) && (
                                 <div className="mb-4 border border-gray-700 rounded-lg bg-background-dark">
                                     <div className="p-3 border-b border-gray-700 flex flex-wrap gap-2 items-center">
+                                        {/* Selector de variante RAW dentro del visor */}
+                                        {hasCoreRaw && hasEngRaw && (
+                                            <div className="inline-flex rounded-lg border border-gray-700 bg-black/30 p-0.5 mr-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedRawVariant('CORE')}
+                                                    className={`px-3 py-1 text-xs rounded ${activeRawVariant === 'CORE' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-gray-400 hover:text-gray-200'}`}
+                                                >
+                                                    {`RAW ${coreRawLabel}`}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedRawVariant('ENG')}
+                                                    className={`px-3 py-1 text-xs rounded ${activeRawVariant === 'ENG' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'text-gray-400 hover:text-gray-200'}`}
+                                                >
+                                                    RAW ENG
+                                                </button>
+                                            </div>
+                                        )}
+                                        {(!hasCoreRaw || !hasEngRaw) && (
+                                            <span className="text-xs text-gray-400 mr-1">{activeRawVariant === 'ENG' ? 'RAW ENG' : `RAW ${coreRawLabel}`}</span>
+                                        )}
                                         <button
                                             type="button"
                                             onClick={zoomOut}
@@ -781,7 +957,7 @@ export default function DetalleAsignacion() {
                                             Siguiente
                                         </button>
                                         <span className="text-xs text-muted-dark ml-auto">
-                                            Zoom {Math.round(imageZoom * 100)}%
+                                            {driveImages.length > 0 && `${selectedImageIndex + 1}/${driveImages.length} · `}Zoom {Math.round(imageZoom * 100)}%
                                         </span>
                                     </div>
 
@@ -900,6 +1076,7 @@ export default function DetalleAsignacion() {
 
                                     {isTyperGuideOpen && (
                                         <div className="mt-4">
+                                            {!isTraductor && !isRedrawer && !isTyper && (
                                             <a
                                                 href={projectFontsConfig.fuentes_drive_url || currentDriveUrl || '#'}
                                                 target={(projectFontsConfig.fuentes_drive_url || currentDriveUrl) ? '_blank' : undefined}
@@ -915,6 +1092,7 @@ export default function DetalleAsignacion() {
                                                 </div>
                                                 <span className="material-icons-round text-gray-400">arrow_forward</span>
                                             </a>
+                                            )}
 
                                             <p className="text-[10px] md:text-xs uppercase tracking-[0.16em] text-gray-500 font-semibold mb-3">
                                                 Catalogo Visual
@@ -1056,6 +1234,42 @@ export default function DetalleAsignacion() {
                 confirmText="Eliminar"
             />
 
+            {showTraduccionModal && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[55] p-4">
+                    <div className="bg-surface-dark rounded-2xl w-full max-w-2xl border border-gray-800 shadow-2xl flex flex-col max-h-[90vh]">
+                        <div className="p-5 border-b border-gray-800 flex items-center justify-between">
+                            <div>
+                                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-violet-400">Traduccion</p>
+                                <h3 className="font-display font-bold text-lg text-white mt-0.5">Vista previa del capitulo</h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowTraduccionModal(false)}
+                                className="text-gray-400 hover:text-white"
+                            >
+                                <span className="material-icons-round">close</span>
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-5">
+                            {traduccionLoading && (
+                                <div className="flex items-center justify-center py-12">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-violet-400"></div>
+                                </div>
+                            )}
+                            {!traduccionLoading && traduccionError && (
+                                <p className="text-sm text-red-400">{traduccionError}</p>
+                            )}
+                            {!traduccionLoading && !traduccionError && traduccionHtml && (
+                                <div
+                                    className="prose prose-invert prose-sm max-w-none text-gray-200 leading-relaxed select-text"
+                                    dangerouslySetInnerHTML={{ __html: traduccionHtml }}
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {showCompleteModal && asignacion && (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[55] p-4">
                     <div className="bg-surface-dark rounded-2xl w-full max-w-lg border border-gray-800 shadow-2xl overflow-hidden">
@@ -1068,40 +1282,97 @@ export default function DetalleAsignacion() {
                                 {` (${asignacion.rol})`}
                             </p>
                         </div>
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-xs text-muted-dark font-bold uppercase tracking-wider mb-2">Enlace de entrega</label>
-                                <input
-                                    type="url"
-                                    value={completionLink}
-                                    onChange={(e) => setCompletionLink(e.target.value)}
-                                    className="w-full bg-background-dark border border-gray-700 rounded px-3 py-3 text-white"
-                                    placeholder={getDeliveryPlaceholder(asignacion.rol || '')}
-                                />
-                            </div>
-                            <p className="text-[11px] text-muted-dark">
-                                {isTraductor
-                                    ? 'Traductor: pega el Google Docs o archivo final antes de cerrar.'
-                                    : 'Typer/Redrawer: pega la carpeta final de Drive antes de cerrar.'}
-                            </p>
-                            <p className="text-[12px] text-muted-dark leading-relaxed">
-                                Al completar, esta tarea dejara de mostrarse dentro de tus tareas activas.
-                            </p>
-                        </div>
-                        <div className="p-6 pt-0 flex gap-3">
-                            <button
-                                onClick={closeCompleteFlow}
-                                className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={continueCompleteFlow}
-                                className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
-                            >
-                                Continuar
-                            </button>
-                        </div>
+                        {(isRedrawer || isTyper) && !isStaffView ? (
+                            <>
+                                <div className="p-6 space-y-4">
+                                    <p className="text-xs text-muted-dark">
+                                        {isRedrawer
+                                            ? 'Sube el zip con las paginas limpias. El sistema las subira automaticamente a Drive y marcara la tarea como completada.'
+                                            : 'Sube el zip con las paginas typeadas. El sistema las subira automaticamente a Drive y marcara la tarea como completada.'}
+                                    </p>
+                                    <label className="block w-full cursor-pointer rounded-xl border-2 border-dashed border-gray-700 hover:border-emerald-500/50 p-6 text-center transition-colors">
+                                        <span className="material-icons-round text-3xl text-muted-dark mb-2 block">upload_file</span>
+                                        <span className="text-sm text-gray-300">
+                                            {redrawZipFile ? redrawZipFile.name : 'Seleccionar archivo .zip'}
+                                        </span>
+                                        <input
+                                            type="file"
+                                            accept=".zip"
+                                            className="hidden"
+                                            onChange={(e) => setRedrawZipFile(e.target.files?.[0] || null)}
+                                        />
+                                    </label>
+                                    {redrawZipFile && (
+                                        <p className="text-[11px] text-muted-dark">
+                                            Tamaño: {(redrawZipFile.size / 1024 / 1024).toFixed(1)} MB
+                                        </p>
+                                    )}
+                                    <p className="text-[11px] text-muted-dark leading-relaxed">
+                                        Al subir, la tarea dejara de mostrarse en tus tareas activas.
+                                    </p>
+                                </div>
+                                <div className="p-6 pt-0 flex gap-3">
+                                    <button
+                                        onClick={closeCompleteFlow}
+                                        disabled={redrawUploading}
+                                        className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-300 hover:text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={submitRedrawZip}
+                                        disabled={!redrawZipFile || redrawUploading}
+                                        className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                                    >
+                                        {redrawUploading ? 'Subiendo...' : 'Subir y completar'}
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="p-6 space-y-4">
+                                    <p className="text-xs text-muted-dark">
+                                        Sube tu archivo de traduccion (.docx, .pdf, etc.). El sistema lo subira automaticamente a Drive y marcara la tarea como completada.
+                                    </p>
+                                    <label className="block w-full cursor-pointer rounded-xl border-2 border-dashed border-gray-700 hover:border-emerald-500/50 p-6 text-center transition-colors">
+                                        <span className="material-icons-round text-3xl text-muted-dark mb-2 block">upload_file</span>
+                                        <span className="text-sm text-gray-300">
+                                            {redrawZipFile ? redrawZipFile.name : 'Seleccionar archivo (.docx, .doc)'}
+                                        </span>
+                                        <input
+                                            type="file"
+                                            accept=".docx,.doc"
+                                            className="hidden"
+                                            onChange={(e) => setRedrawZipFile(e.target.files?.[0] || null)}
+                                        />
+                                    </label>
+                                    {redrawZipFile && (
+                                        <p className="text-[11px] text-muted-dark">
+                                            Tamaño: {(redrawZipFile.size / 1024 / 1024).toFixed(1)} MB
+                                        </p>
+                                    )}
+                                    <p className="text-[11px] text-muted-dark leading-relaxed">
+                                        Al subir, la tarea dejara de mostrarse en tus tareas activas.
+                                    </p>
+                                </div>
+                                <div className="p-6 pt-0 flex gap-3">
+                                    <button
+                                        onClick={closeCompleteFlow}
+                                        disabled={redrawUploading}
+                                        className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-300 hover:text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={submitRedrawZip}
+                                        disabled={!redrawZipFile || redrawUploading}
+                                        className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                                    >
+                                        {redrawUploading ? 'Subiendo...' : 'Subir y completar'}
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}

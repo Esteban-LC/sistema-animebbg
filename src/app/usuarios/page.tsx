@@ -22,6 +22,7 @@ interface Usuario {
     grupo_nombre?: string;
     activo: number;
     creado_en: string;
+    rango?: number;
 }
 
 const AVAILABLE_ROLES = [
@@ -56,7 +57,8 @@ export default function UsuariosPage() {
         tag: '',
         nombre_creditos: '',
         roles: [] as string[],
-        grupo_id: ''
+        grupo_id: '',
+        rango: 1 as number,
     });
     const [nuevoGrupo, setNuevoGrupo] = useState('');
     const [showGrupoModal, setShowGrupoModal] = useState(false);
@@ -158,13 +160,14 @@ export default function UsuariosPage() {
             tag: usuario.tag || '',
             nombre_creditos: usuario.nombre_creditos || usuario.nombre || '',
             roles: usuario.roles || [],
-            grupo_id: usuario.grupo_id ? usuario.grupo_id.toString() : ''
+            grupo_id: usuario.grupo_id ? usuario.grupo_id.toString() : '',
+            rango: usuario.rango ?? 1,
         });
     };
 
     const handleCancelEdit = () => {
         setEditingId(null);
-        setNuevoUsuario({ nombre: '', tag: '', nombre_creditos: '', roles: [], grupo_id: '' });
+        setNuevoUsuario({ nombre: '', tag: '', nombre_creditos: '', roles: [], grupo_id: '', rango: 1 });
     };
 
 
@@ -191,7 +194,7 @@ export default function UsuariosPage() {
             const data = await res.json().catch(() => ({}));
 
             if (res.ok) {
-                setNuevoUsuario({ nombre: '', tag: '', nombre_creditos: '', roles: [], grupo_id: '' });
+                setNuevoUsuario({ nombre: '', tag: '', nombre_creditos: '', roles: [], grupo_id: '', rango: 1 });
                 setEditingId(null);
                 fetchUsuarios();
                 showToast(editingId ? 'Usuario actualizado correctamente' : 'Usuario creado correctamente', 'success');
@@ -376,6 +379,19 @@ export default function UsuariosPage() {
                                             </select>
                                         )}
                                     </div>
+                                    {isAdmin && (
+                                        <div>
+                                            <label className="block text-xs font-bold text-muted-dark uppercase tracking-wider mb-2">Rango</label>
+                                            <select
+                                                value={nuevoUsuario.rango}
+                                                onChange={e => setNuevoUsuario({ ...nuevoUsuario, rango: Number(e.target.value) })}
+                                                className="w-full bg-background-dark border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-primary transition-colors appearance-none"
+                                            >
+                                                <option value={1}>Nuevo</option>
+                                                <option value={2}>Staff</option>
+                                            </select>
+                                        </div>
+                                    )}
                                     <div>
                                         <label className="block text-xs font-bold text-muted-dark uppercase tracking-wider mb-2">Roles</label>
                                         <div className="flex flex-wrap gap-2">
@@ -500,15 +516,25 @@ export default function UsuariosPage() {
                                                 </td>
                                                 {canManageUsers && (
                                                     <td className="px-6 py-4">
-                                                        <button
-                                                            onClick={() => toggleStatus(usuario.id, usuario.activo)}
-                                                            className={`text-xs font-bold px-3 py-1 rounded-full border transition-all ${usuario.activo === 1
-                                                                ? 'bg-green-500/10 border-green-500/30 text-green-500 hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-500'
-                                                                : 'bg-red-500/10 border-red-500/30 text-red-500 hover:bg-green-500/20 hover:border-green-500/50 hover:text-green-500'
-                                                                }`}
-                                                        >
-                                                            {usuario.activo === 1 ? 'Activo' : 'Inactivo'}
-                                                        </button>
+                                                        <div className="flex flex-col gap-1.5">
+                                                            <button
+                                                                onClick={() => toggleStatus(usuario.id, usuario.activo)}
+                                                                className={`text-xs font-bold px-3 py-1 rounded-full border transition-all ${usuario.activo === 1
+                                                                    ? 'bg-green-500/10 border-green-500/30 text-green-500 hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-500'
+                                                                    : 'bg-red-500/10 border-red-500/30 text-red-500 hover:bg-green-500/20 hover:border-green-500/50 hover:text-green-500'
+                                                                    }`}
+                                                            >
+                                                                {usuario.activo === 1 ? 'Activo' : 'Inactivo'}
+                                                            </button>
+                                                            {isAdmin && (
+                                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border text-center ${(usuario.rango ?? 1) >= 2
+                                                                    ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
+                                                                    : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                                                    }`}>
+                                                                    {(usuario.rango ?? 1) >= 2 ? 'Staff' : 'Nuevo'}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                 )}
                                                 {isAdmin && (

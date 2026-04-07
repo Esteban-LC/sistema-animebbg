@@ -45,6 +45,16 @@ async function ensureUsuariosCreditosColumns(db) {
         }
     }
 
+    const hasRango = await hasUsuariosColumn(db, 'rango');
+    if (!hasRango) {
+        try {
+            await db.prepare('ALTER TABLE usuarios ADD COLUMN rango INTEGER DEFAULT 1').run();
+        } catch { }
+        try {
+            await db.prepare('UPDATE usuarios SET rango = 2 WHERE rango IS NULL OR rango = 0').run();
+        } catch { }
+    }
+
     try {
         await db.prepare(`UPDATE usuarios SET nombre_creditos = nombre WHERE nombre_creditos IS NULL OR TRIM(nombre_creditos) = ''`).run();
     } catch { }
@@ -128,7 +138,7 @@ export async function GET() {
 
 export async function POST(request) {
     try {
-        const { nombre, discord_username, roles, grupo_id, tag, nombre_creditos } = await request.json();
+        const { nombre, discord_username, roles, grupo_id, tag, nombre_creditos, rango } = await request.json();
         const db = getDb();
         await ensureUsuariosCreditosColumns(db);
         const token = (await cookies()).get('auth_token')?.value;
@@ -165,8 +175,8 @@ export async function POST(request) {
         }
 
         const stmt = db.prepare(`
-            INSERT INTO usuarios (nombre, discord_username, roles, grupo_id, password, tag, nombre_creditos)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO usuarios (nombre, discord_username, roles, grupo_id, password, tag, nombre_creditos, rango)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         // Default password for new users: 123456
@@ -178,6 +188,7 @@ export async function POST(request) {
         }
 
         const creditsName = String(nombre_creditos || '').trim() || String(nombre || '').trim();
+        const rangoFinal = (rango === 2 || rango === '2') ? 2 : 1;
         const result = await stmt.run(
             nombre,
             discord_username || null,
@@ -185,11 +196,12 @@ export async function POST(request) {
             finalGrupoId,
             '123456',
             normalizedTag,
-            creditsName
+            creditsName,
+            rangoFinal
         );
 
         return NextResponse.json({
-            id: result.lastInsertRowid,
+            id: Number(result.lastInsertRowid),
             nombre,
             discord_username,
             roles: allowedRoles,
