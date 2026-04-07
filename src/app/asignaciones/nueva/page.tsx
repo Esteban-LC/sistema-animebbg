@@ -291,14 +291,32 @@ function NuevaAsignacionContent() {
 
     useEffect(() => {
         if (formData.rol !== 'Traductor') return;
-        if (formData.traductor_tipo === 'CORE' && !canUseCoreTranslatorForSelection) {
-            setFormData((prev) => ({ ...prev, traductor_tipo: 'ENG', capitulo: '' }));
+
+        const currentTipo = formData.traductor_tipo;
+        const currentProyectoId = formData.proyecto_id;
+        const currentUsuarioId = formData.usuario_id;
+
+        // Recalcular desde los datos crudos para evitar dependencias reactivas
+        const proyecto = proyectos.find((p) => String(p.id) === String(currentProyectoId));
+        const usuario = usuarios.find((u) => String(u.id) === String(currentUsuarioId));
+        const userRoles = Array.isArray(usuario?.roles) ? usuario.roles : [];
+
+        const hasTradCore =
+            userRoles.includes('Traductor') ||
+            userRoles.includes(TRANSLATOR_KO_ROLE) ||
+            userRoles.includes(TRANSLATOR_JAP_ROLE) ||
+            userRoles.includes(TRANSLATOR_CORE_LEGACY_ROLE);
+        const hasTradEng = userRoles.includes(TRANSLATOR_ENG_ROLE);
+        const coreEnabled = Number(proyecto?.raw_secundario_activo || 0) === 1 && hasTradCore;
+
+        if (currentTipo === 'CORE' && !coreEnabled) {
+            setFormData((prev) => prev.traductor_tipo === 'CORE' ? { ...prev, traductor_tipo: 'ENG', capitulo: '' } : prev);
             return;
         }
-        if (formData.traductor_tipo === 'ENG' && !selectedUserHasTradEng) {
-            setFormData((prev) => ({ ...prev, traductor_tipo: 'CORE', capitulo: '' }));
+        if (currentTipo === 'ENG' && !hasTradEng) {
+            setFormData((prev) => prev.traductor_tipo === 'ENG' ? { ...prev, traductor_tipo: 'CORE', capitulo: '' } : prev);
         }
-    }, [formData.rol, formData.traductor_tipo, canUseCoreTranslatorForSelection, selectedUserHasTradEng]);
+    }, [formData.rol, formData.traductor_tipo, formData.proyecto_id, formData.usuario_id, proyectos, usuarios]);
 
     useEffect(() => {
         if (formData.proyecto_id && formData.capitulo) {

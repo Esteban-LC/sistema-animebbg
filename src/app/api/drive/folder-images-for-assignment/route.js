@@ -2,8 +2,19 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { getProjectCatalogEntries } from '@/lib/project-catalog';
+import { listDriveItemsByFolder } from '@/lib/google-drive';
 
 export const dynamic = 'force-dynamic';
+
+const IMAGE_MIME_TYPES = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'image/bmp',
+    'image/avif',
+    'image/tiff',
+]);
 
 function extractFolderId(input) {
     if (!input) return null;
@@ -18,42 +29,6 @@ function extractFolderId(input) {
         const fromRaw = String(input).match(/([A-Za-z0-9_-]{20,})/);
         return fromRaw?.[1] || null;
     }
-}
-
-function decodeEscapes(value) {
-    if (!value) return '';
-    return value
-        .replace(/\\u003d/g, '=')
-        .replace(/\\u0026/g, '&')
-        .replace(/\\u002f/gi, '/')
-        .replace(/\\u003c/gi, '<')
-        .replace(/\\u003e/gi, '>')
-        .replace(/\\u([0-9a-fA-F]{4})/g, (_, code) => String.fromCharCode(parseInt(code, 16)));
-}
-
-function parseImageFiles(html) {
-    const unescaped = html.replace(/&quot;/g, '"');
-    const regex = /null,"([A-Za-z0-9_-]{20,})"\],null,null,null,"(image\/[^"]+)".{0,1500}?\[\[\["([^"]+\.(?:jpe?g|png|webp|gif|bmp|avif))",null,true\]\]\]/gsi;
-    const filesMap = new Map();
-    let match;
-
-    while ((match = regex.exec(unescaped)) !== null) {
-        const id = match[1];
-        const mimeType = decodeEscapes(match[2] || '');
-        const name = decodeEscapes(match[3] || '');
-        if (!id || !name) continue;
-        if (!mimeType.startsWith('image/')) continue;
-        filesMap.set(id, {
-            id,
-            name,
-            mimeType,
-            view_url: `https://drive.google.com/uc?export=view&id=${id}`,
-            thumb_url: `https://drive.google.com/thumbnail?id=${id}&sz=w1200`,
-        });
-    }
-
-    const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
-    return [...filesMap.values()].sort((a, b) => collator.compare(a.name, b.name));
 }
 
 export async function GET(request) {
@@ -119,31 +94,42 @@ export async function GET(request) {
             ? String(match?.url || '')
             : String(match?.raw_eng_url || '');
 
+        console.log(`[folder-images] asignacion=${assignmentId} capitulo=${asignacion.capitulo} variant=${variant}`);
+        console.log(`[folder-images] match encontrado:`, match ? JSON.stringify(match) : 'null');
+        console.log(`[folder-images] rawUrl resuelto: "${rawUrl}"`);
+
         if (!rawUrl) {
-            return NextResponse.json({ images: [] });
+            console.log(`[folder-images] rawUrl vacio — retornando images:[]`);
+            return NextResponse.json({ images: [], _debug: { reason: 'no_raw_url', capitulo: asignacion.capitulo, variant, match: match || null } });
         }
 
         const folderId = extractFolderId(rawUrl);
+        console.log(`[folder-images] folderId extraido: "${folderId}" de rawUrl: "${rawUrl}"`);
         if (!folderId) {
             return NextResponse.json({ error: 'URL de carpeta invalida' }, { status: 400 });
         }
 
-        const driveFolderUrl = `https://drive.google.com/drive/folders/${folderId}?usp=sharing`;
-        const response = await fetch(driveFolderUrl, {
-            method: 'GET',
-            headers: {
-                'User-Agent': 'Mozilla/5.0',
-                'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-            },
-            cache: 'no-store',
-        });
-
-        if (!response.ok) {
-            return NextResponse.json({ error: 'No se pudo leer la carpeta de Drive' }, { status: 400 });
+        // Usar la API oficial de Google Drive con Service Account
+        const files = await listDriveItemsByFolder(folderId);
+        console.log(`[folder-images] archivos en carpeta (${folderId}): ${files.length}`);
+        if (files.length > 0) {
+            const mimesSample = [...new Set(files.map(f => f.mimeType))].slice(0, 10);
+            console.log(`[folder-images] mimeTypes en carpeta:`, mimesSample);
         }
 
-        const html = await response.text();
-        const images = parseImageFiles(html);
+        const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
+        const images = files
+            .filter((file) => IMAGE_MIME_TYPES.has(String(file?.mimeType || '')))
+            .map((file) => ({
+                id: String(file.id),
+                name: String(file.name),
+                mimeType: String(file.mimeType),
+                view_url: `https://drive.google.com/uc?export=view&id=${file.id}`,
+                thumb_url: `https://drive.google.com/thumbnail?id=${file.id}&sz=w1200`,
+            }))
+            .sort((a, b) => collator.compare(a.name, b.name));
+
+        console.log(`[folder-images] imagenes filtradas: ${images.length}`);
         return NextResponse.json({ images });
     } catch (error) {
         return NextResponse.json(
