@@ -162,7 +162,6 @@ export default function RankingPage() {
     const [modalLoading, setModalLoading] = useState(false);
     const [modalSeason, setModalSeason] = useState<{ start: string; end: string } | null>(null);
     const [modalEntries, setModalEntries] = useState<HistoryEntry[]>([]);
-    const isLeader = roles.includes('Lider de Grupo');
     const groupRankingVisible = user?.groupSettings?.showRanking !== false;
     const canViewRanking = Boolean(user?.isAdmin || roles.includes('Administrador') || isLeader || groupRankingVisible);
 
