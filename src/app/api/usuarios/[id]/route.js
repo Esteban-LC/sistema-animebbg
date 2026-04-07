@@ -193,7 +193,29 @@ export async function DELETE(request, { params }) {
             await db.prepare('DELETE FROM solicitudes_asignacion WHERE usuario_id = ?').run(id);
         } catch { }
         try {
+            await db.prepare('UPDATE solicitudes_asignacion SET atendido_por = NULL WHERE atendido_por = ?').run(id);
+        } catch { }
+        try {
             await db.prepare('DELETE FROM sessions WHERE usuario_id = ?').run(id);
+        } catch { }
+        // Notificaciones (FK on usuario_id)
+        try {
+            await db.prepare('DELETE FROM notificaciones WHERE usuario_id = ?').run(id);
+        } catch { }
+        // Sugerencias voting tables (FK on usuario_id)
+        try {
+            await db.prepare('DELETE FROM sugerencia_votos_items WHERE usuario_id = ?').run(id);
+        } catch { }
+        try {
+            await db.prepare('DELETE FROM sugerencia_votos WHERE usuario_id = ?').run(id);
+        } catch { }
+        // Sugerencias created by this user — nullify the author reference or delete them
+        try {
+            await db.prepare('UPDATE sugerencias SET creada_por = NULL WHERE creada_por = ?').run(id);
+        } catch { }
+        // Sugerencia rounds created by this user — nullify the author reference
+        try {
+            await db.prepare('UPDATE sugerencia_rondas SET creado_por = NULL WHERE creado_por = ?').run(id);
         } catch { }
 
         // 2. Delete the user
