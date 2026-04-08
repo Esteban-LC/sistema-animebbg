@@ -8,9 +8,23 @@ export async function GET(request) {
     const code = searchParams.get('code');
     const error = searchParams.get('error');
 
+    // Usar el dominio del REDIRECT_URI configurado para evitar problemas con proxy inverso (nginx)
+    const getBaseUrl = () => {
+        const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI;
+        if (redirectUri) {
+            try {
+                const url = new URL(redirectUri);
+                return `${url.protocol}//${url.host}`;
+            } catch { /* fallback */ }
+        }
+        return new URL(request.url).origin;
+    };
+
+    const baseUrl = getBaseUrl();
+
     if (error || !code) {
         return NextResponse.redirect(
-            new URL(`/configuracion?drive_oauth=error&reason=${error || 'no_code'}`, request.url)
+            `${baseUrl}/configuracion?drive_oauth=error&reason=${error || 'no_code'}`
         );
     }
 
@@ -43,10 +57,10 @@ export async function GET(request) {
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
         `).run(data.refresh_token);
 
-        return NextResponse.redirect(new URL('/configuracion?drive_oauth=success', request.url));
+        return NextResponse.redirect(`${baseUrl}/configuracion?drive_oauth=success`);
     } catch (err) {
         return NextResponse.redirect(
-            new URL(`/configuracion?drive_oauth=error&reason=${encodeURIComponent(err.message)}`, request.url)
+            `${baseUrl}/configuracion?drive_oauth=error&reason=${encodeURIComponent(err.message)}`
         );
     }
 }
