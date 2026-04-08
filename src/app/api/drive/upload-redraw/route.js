@@ -129,11 +129,10 @@ export async function POST(request) {
             return NextResponse.json({ error: 'La asignacion no tiene proyecto o capitulo asignado' }, { status: 400 });
         }
 
-        const proyectoTitulo = String(asignacion.proyecto_titulo || `Proyecto_${asignacion.proyecto_id}`);
         const capFolderName = `Chapter ${Number(asignacion.capitulo)}`;
         const filename = uploadFile.name || 'entrega';
 
-        // Traductores suben un solo archivo (docx/pdf), no un zip
+        // Traductores suben un solo archivo (docx/pdf) directo a la carpeta del proyecto
         if (rol === 'traductor') {
             const mime = getMimeType(filename, rol);
             if (!mime) {
@@ -143,8 +142,8 @@ export async function POST(request) {
             if (!hasValidMagicBytes(fileBuffer, filename)) {
                 return NextResponse.json({ error: 'El archivo no es un documento Word valido' }, { status: 400 });
             }
-            const proyectoFolderId = await getOrCreateFolderOAuth(destFolderId, proyectoTitulo);
-            const uploaded = await uploadFileToDriveOAuth(proyectoFolderId, filename, mime, fileBuffer);
+            // destFolderId ya es la carpeta del proyecto, subir directo sin subcarpeta
+            const uploaded = await uploadFileToDriveOAuth(destFolderId, filename, mime, fileBuffer);
             const fileUrl = uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
 
             await db.prepare(`
@@ -176,8 +175,8 @@ export async function POST(request) {
             return NextResponse.json({ error: 'El zip no contiene imagenes validas' }, { status: 400 });
         }
 
-        const proyectoFolderId = await getOrCreateFolderOAuth(destFolderId, proyectoTitulo);
-        const capFolderId = await getOrCreateFolderOAuth(proyectoFolderId, capFolderName);
+        // destFolderId ya es la carpeta del proyecto, solo crear subcarpeta por capítulo
+        const capFolderId = await getOrCreateFolderOAuth(destFolderId, capFolderName);
 
         const CONCURRENCY = 3;
         const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
