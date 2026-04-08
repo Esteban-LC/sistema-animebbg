@@ -76,8 +76,12 @@ export async function POST(request) {
         // Verificar que el rol pedido sea uno de sus roles
         const userRoles = session.roles.map(r => r.toLowerCase());
         const rolLower = String(rol).toLowerCase();
-        const staffRoles = ['traductor', 'traductor eng', 'traductor ko', 'traductor jap', 'redrawer', 'typer'];
-        if (!staffRoles.includes(rolLower) || !userRoles.some(r => r === rolLower)) {
+        const staffRoles = ['traductor', 'traductor eng', 'traductor ko', 'traductor jap', 'traductor ko/jap', 'redrawer', 'typer'];
+        // Para 'traductor' aceptar cualquier variante (Traductor ENG, KO, JAP, etc.)
+        const userHasRole = rolLower === 'traductor'
+            ? userRoles.some(r => r === 'traductor' || r.startsWith('traductor '))
+            : userRoles.some(r => r === rolLower);
+        if (!staffRoles.includes(rolLower) || !userHasRole) {
             return NextResponse.json({ error: 'Rol no valido para tu usuario' }, { status: 400 });
         }
 
