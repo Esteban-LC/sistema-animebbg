@@ -220,7 +220,7 @@ export default function DetalleAsignacion() {
     const isStaffView = searchParams.get('staff') === '1';
     const usesManagedCompletionFlow = !isStaffView && Boolean(isAdmin || isLeader);
     const assignmentRole = String(asignacion?.rol || '').toLowerCase();
-    const isTraductor = assignmentRole === 'traductor';
+    const isTraductor = assignmentRole === 'traductor' || assignmentRole.startsWith('traductor ');
     const isTyper = assignmentRole === 'typer';
     const isRedrawer = assignmentRole === 'redrawer';
     const isTyperOrRedrawer = assignmentRole === 'typer' || assignmentRole === 'redrawer';
@@ -1282,7 +1282,7 @@ export default function DetalleAsignacion() {
                                 {` (${asignacion.rol})`}
                             </p>
                         </div>
-                        {(isRedrawer || isTyper) && !isStaffView ? (
+                        {(isRedrawer || isTyper) ? (
                             <>
                                 <div className="p-6 space-y-4">
                                     <p className="text-xs text-muted-dark">
