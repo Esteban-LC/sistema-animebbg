@@ -84,6 +84,7 @@ export async function GET(request) {
         const asignacion = await db.prepare(`
             SELECT a.usuario_id, a.proyecto_id, a.capitulo, a.rol,
                    p.titulo AS proyecto_titulo,
+                   p.traductor_folder_id,
                    COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) AS grupo_id
             FROM asignaciones a
             LEFT JOIN proyectos p ON p.id = a.proyecto_id
@@ -103,18 +104,30 @@ export async function GET(request) {
             return NextResponse.json({ error: 'La asignacion no tiene proyecto o capitulo' }, { status: 400 });
         }
 
-        const tradFolderId = process.env.TRADUCCIONES_FOLDER_ID;
-        if (!tradFolderId) {
-            return NextResponse.json({ error: 'Carpeta de traducciones no configurada' }, { status: 500 });
-        }
-
-        const proyectoTitulo = String(asignacion.proyecto_titulo || `Proyecto_${asignacion.proyecto_id}`);
         const capNum = Number(asignacion.capitulo);
 
-        // Navegar: Traducciones → Proyecto
-        const proyectoFolderId = await findFolderByName(tradFolderId, proyectoTitulo);
+        // Usar la carpeta de traducciones configurada por proyecto en la BD
+        // con fallback a la variable de entorno global (si existe)
+        const extractFolderId = (val) => {
+            if (!val) return '';
+            const str = String(val).trim();
+            const match = str.match(/[-\w]{25,}/);
+            return match ? match[0] : str;
+        };
+
+        let proyectoFolderId = extractFolderId(asignacion.traductor_folder_id);
+
         if (!proyectoFolderId) {
-            return NextResponse.json({ error: 'No hay traduccion disponible para este proyecto' }, { status: 404 });
+            // Fallback: buscar por nombre en la carpeta global si está configurada
+            const tradFolderId = process.env.TRADUCCIONES_FOLDER_ID;
+            if (!tradFolderId) {
+                return NextResponse.json({ error: 'Carpeta de traducciones no configurada para este proyecto. Configurala en la seccion de Proyectos.' }, { status: 404 });
+            }
+            const proyectoTitulo = String(asignacion.proyecto_titulo || `Proyecto_${asignacion.proyecto_id}`);
+            proyectoFolderId = await findFolderByName(tradFolderId, proyectoTitulo);
+            if (!proyectoFolderId) {
+                return NextResponse.json({ error: 'No hay traduccion disponible para este proyecto' }, { status: 404 });
+            }
         }
 
         // Buscar directamente en la carpeta del proyecto filtrando por número de capítulo
