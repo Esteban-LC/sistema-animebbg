@@ -109,7 +109,9 @@ export async function POST(request) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
         }
 
-        const rol = String(asignacion.rol || '').toLowerCase();
+        const rolRaw = String(asignacion.rol || '').toLowerCase();
+        // Normalizar todas las variantes de Traductor (Traductor ENG, KO, JAP, etc.) a 'traductor'
+        const rol = rolRaw.startsWith('traductor') ? 'traductor' : rolRaw;
         if (!isAdmin && !canViewAsLeader && !UPLOAD_ROLES.includes(rol)) {
             return NextResponse.json({ error: 'Tu rol no tiene permitido subir entregables' }, { status: 403 });
         }
