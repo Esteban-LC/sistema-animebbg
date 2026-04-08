@@ -7,11 +7,14 @@ import { unzipSync } from 'fflate';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
-const DEST_FOLDERS = {
-    redrawer: process.env.CAPS_LIMPIOS_FOLDER_ID || '',
-    typer: process.env.TYPPEOS_FOLDER_ID || '',
-    traductor: process.env.TRADUCCIONES_FOLDER_ID || '',
-};
+// Las carpetas destino se leen por proyecto desde la DB (traductor_folder_id, redraw_folder_id, typer_folder_id)
+function getDestFolderIdFromProject(proyecto, rol) {
+    if (!proyecto) return '';
+    if (rol === 'traductor') return String(proyecto.traductor_folder_id || '').trim();
+    if (rol === 'redrawer') return String(proyecto.redraw_folder_id || '').trim();
+    if (rol === 'typer') return String(proyecto.typer_folder_id || '').trim();
+    return '';
+}
 
 const ALLOWED_IMAGE_TYPES = {
     'jpg': 'image/jpeg',
@@ -94,6 +97,7 @@ export async function POST(request) {
         const asignacion = await db.prepare(`
             SELECT a.usuario_id, a.proyecto_id, a.capitulo, a.rol, a.estado,
                    p.titulo as proyecto_titulo,
+                   p.traductor_folder_id, p.redraw_folder_id, p.typer_folder_id,
                    COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) AS grupo_id
             FROM asignaciones a
             LEFT JOIN proyectos p ON p.id = a.proyecto_id
@@ -116,9 +120,9 @@ export async function POST(request) {
             return NextResponse.json({ error: 'Tu rol no tiene permitido subir entregables' }, { status: 403 });
         }
 
-        const destFolderId = DEST_FOLDERS[rol] || '';
+        const destFolderId = getDestFolderIdFromProject(asignacion, rol);
         if (!destFolderId) {
-            return NextResponse.json({ error: `Carpeta destino no configurada para rol ${asignacion.rol}` }, { status: 500 });
+            return NextResponse.json({ error: `Carpeta destino no configurada para rol ${asignacion.rol}. Configura las carpetas Drive del proyecto.` }, { status: 500 });
         }
 
         if (!asignacion.proyecto_id || asignacion.capitulo === null || asignacion.capitulo === undefined) {
