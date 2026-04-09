@@ -55,9 +55,31 @@ app.prepare().then(() => {
           const filePath = path.join(UPLOAD_TMP_DIR, `${requestId}.bin`);
           fs.writeFileSync(metaPath, JSON.stringify(meta));
           if (fileBuffer) fs.writeFileSync(filePath, fileBuffer);
-          // Pasar requestId por query param modificando req.url directamente
-          req.url = `/api/drive/upload-redraw?_rid=${requestId}`;
-          handle(req, res, parse(req.url, true));
+
+          // Hacer nueva peticion interna con body JSON pequeño (el body original ya fue consumido)
+          const body = JSON.stringify({ _rid: requestId });
+          const internalReq = require('http').request({
+            hostname: '127.0.0.1',
+            port: Number(port),
+            path: `/api/drive/upload-redraw?_rid=${requestId}`,
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'content-length': Buffer.byteLength(body),
+              'cookie': req.headers['cookie'] || '',
+              'x-forwarded-for': req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '',
+            },
+          }, (internalRes) => {
+            res.writeHead(internalRes.statusCode, internalRes.headers);
+            internalRes.pipe(res);
+          });
+          internalReq.on('error', (err) => {
+            console.error('[upload interceptor] internal request error:', err);
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Error interno al procesar la subida' }));
+          });
+          internalReq.write(body);
+          internalReq.end();
         });
         bb.on('error', (err) => {
           console.error('[upload interceptor] busboy error:', err);
