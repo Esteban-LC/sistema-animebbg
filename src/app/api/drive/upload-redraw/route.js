@@ -3,6 +3,11 @@ import { getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { getOrCreateFolderOAuth, uploadFileToDriveOAuth } from '@/lib/google-oauth';
 import { unzipSync } from 'fflate';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+
+const UPLOAD_TMP_DIR = path.join(os.tmpdir(), 'animebbg-uploads');
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -83,14 +88,23 @@ export async function POST(request) {
         const isAdmin = roles.includes('Administrador');
         const isLeader = roles.includes('Lider de Grupo');
 
-        // El body fue pre-parseado en server.js para evitar el limite de 10MB de Next.js
+        // El body fue pre-parseado en server.js y guardado en disco para evitar el limite de 10MB de Next.js
         const requestId = request.headers.get('x-upload-request-id');
-        console.log('[upload-redraw] requestId:', requestId, 'buffers disponibles:', global.__uploadBuffers?.size);
-        if (!requestId || !global.__uploadBuffers?.has(requestId)) {
+        console.log('[upload-redraw] requestId:', requestId);
+        if (!requestId) {
             return NextResponse.json({ error: 'No se recibio el archivo (interceptor fallido)' }, { status: 400 });
         }
-        const { assignmentId, uploadFile } = global.__uploadBuffers.get(requestId);
-        global.__uploadBuffers.delete(requestId);
+        const metaPath = path.join(UPLOAD_TMP_DIR, `${requestId}.json`);
+        const filePath = path.join(UPLOAD_TMP_DIR, `${requestId}.bin`);
+        if (!fs.existsSync(metaPath)) {
+            return NextResponse.json({ error: 'No se recibio el archivo (archivo temporal no encontrado)' }, { status: 400 });
+        }
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        const fileBufferRaw = fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
+        fs.unlinkSync(metaPath);
+        if (fileBufferRaw) fs.unlinkSync(filePath);
+        const assignmentId = meta.assignmentId;
+        const uploadFile = fileBufferRaw ? { buffer: fileBufferRaw, name: meta.fileName } : null;
 
         if (!Number.isFinite(assignmentId) || assignmentId <= 0) {
             return NextResponse.json({ error: 'ID de asignacion invalido' }, { status: 400 });

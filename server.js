@@ -3,9 +3,12 @@ const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
 const busboy = require('busboy');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
-// Global store for pre-parsed upload bodies (bypass Next.js 10MB limit)
-global.__uploadBuffers = new Map();
+const UPLOAD_TMP_DIR = path.join(os.tmpdir(), 'animebbg-uploads');
+if (!fs.existsSync(UPLOAD_TMP_DIR)) fs.mkdirSync(UPLOAD_TMP_DIR, { recursive: true });
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -47,10 +50,11 @@ app.prepare().then(() => {
         });
         bb.on('finish', () => {
           console.log('[upload interceptor] busboy finish, assignmentId:', assignmentIdRaw, 'fileSize:', fileBuffer?.length);
-          global.__uploadBuffers.set(requestId, {
-            assignmentId: Number(assignmentIdRaw),
-            uploadFile: fileBuffer !== null ? { buffer: fileBuffer, name: fileName } : null,
-          });
+          const meta = { assignmentId: Number(assignmentIdRaw), fileName };
+          const metaPath = path.join(UPLOAD_TMP_DIR, `${requestId}.json`);
+          const filePath = path.join(UPLOAD_TMP_DIR, `${requestId}.bin`);
+          fs.writeFileSync(metaPath, JSON.stringify(meta));
+          if (fileBuffer) fs.writeFileSync(filePath, fileBuffer);
           req.headers['x-upload-request-id'] = requestId;
           handle(req, res, parsedUrl);
         });
