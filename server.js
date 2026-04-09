@@ -30,7 +30,8 @@ app.prepare().then(() => {
       const parsedUrl = parse(req.url, true);
 
       // Intercept upload-redraw POST before Next.js touches the body (bypasses 10MB limit)
-      if (req.method === 'POST' && parsedUrl.pathname === '/api/drive/upload-redraw') {
+      // Skip if already has _rid (internal request after pre-processing)
+      if (req.method === 'POST' && parsedUrl.pathname === '/api/drive/upload-redraw' && !parsedUrl.query._rid) {
         console.log('[upload interceptor] interceptando upload, content-type:', req.headers['content-type']);
         const requestId = `${Date.now()}-${Math.random()}`;
         const bb = busboy({ headers: req.headers, limits: { fileSize: 100 * 1024 * 1024 } });
