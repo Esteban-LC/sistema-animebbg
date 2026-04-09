@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import { formatActivityDate } from '@/utils/date';
 import Link from 'next/link';
@@ -193,6 +193,13 @@ export default function DetalleAsignacion() {
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
     const [imageZoom, setImageZoom] = useState(1);
     const [selectedRawVariant, setSelectedRawVariant] = useState<'CORE' | 'ENG'>('CORE');
+    const [isFloatingViewer, setIsFloatingViewer] = useState(false);
+    const [isMobileViewer, setIsMobileViewer] = useState(false);
+    const [floatPos, setFloatPos] = useState({ x: 40, y: 80 });
+    const [floatSize, setFloatSize] = useState({ w: 700, h: 520 });
+    const floatRef = useRef<HTMLDivElement>(null);
+    const dragState = useRef<{ dragging: boolean; startX: number; startY: number; origX: number; origY: number }>({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 });
+    const touchStartX = useRef(0);
     const [isSymbolsGuideOpen, setIsSymbolsGuideOpen] = useState(true);
     const [isTyperGuideOpen, setIsTyperGuideOpen] = useState(true);
     const [projectFontsConfig, setProjectFontsConfig] = useState<ProjectFontsConfig>(DEFAULT_PROJECT_FONTS_CONFIG);
@@ -254,6 +261,23 @@ export default function DetalleAsignacion() {
     const resetZoom = () => setImageZoom(1);
     const goPrevImage = () => setSelectedImageIndex((idx) => Math.max(0, idx - 1));
     const goNextImage = () => setSelectedImageIndex((idx) => Math.min(driveImages.length - 1, idx + 1));
+
+    const onDragStart = useCallback((e: React.MouseEvent) => {
+        dragState.current = { dragging: true, startX: e.clientX, startY: e.clientY, origX: floatPos.x, origY: floatPos.y };
+        const onMove = (ev: MouseEvent) => {
+            if (!dragState.current.dragging) return;
+            setFloatPos({ x: dragState.current.origX + ev.clientX - dragState.current.startX, y: dragState.current.origY + ev.clientY - dragState.current.startY });
+        };
+        const onUp = () => { dragState.current.dragging = false; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [floatPos]);
+
+    const onTouchStartSwipe = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
+    const onTouchEndSwipe = (e: React.TouchEvent) => {
+        const diff = touchStartX.current - e.changedTouches[0].clientX;
+        if (Math.abs(diff) > 50) diff > 0 ? goNextImage() : goPrevImage();
+    };
 
     useEffect(() => {
         if (!id) {
@@ -894,122 +918,117 @@ export default function DetalleAsignacion() {
                                     </div>
                                 </div>
                             )}
-                            {(isTraductor ? (viewerDriveLinkType === 'folder') : isTyper) && (hasCoreRaw || hasEngRaw) && (
-                                <div className="mb-4 border border-gray-700 rounded-lg bg-background-dark">
-                                    <div className="p-3 border-b border-gray-700 flex flex-wrap gap-2 items-center">
-                                        {/* Selector de variante RAW dentro del visor */}
+                            {(isTraductor ? (viewerDriveLinkType === 'folder') : isTyper) && (hasCoreRaw || hasEngRaw) && (() => {
+                                const viewerToolbar = (
+                                    <div className="flex flex-wrap gap-2 items-center">
                                         {hasCoreRaw && hasEngRaw && (
                                             <div className="inline-flex rounded-lg border border-gray-700 bg-black/30 p-0.5 mr-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setSelectedRawVariant('CORE')}
-                                                    className={`px-3 py-1 text-xs rounded ${activeRawVariant === 'CORE' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-gray-400 hover:text-gray-200'}`}
-                                                >
-                                                    {`RAW ${coreRawLabel}`}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setSelectedRawVariant('ENG')}
-                                                    className={`px-3 py-1 text-xs rounded ${activeRawVariant === 'ENG' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'text-gray-400 hover:text-gray-200'}`}
-                                                >
-                                                    RAW ENG
-                                                </button>
+                                                <button type="button" onClick={() => setSelectedRawVariant('CORE')} className={`px-3 py-1 text-xs rounded ${activeRawVariant === 'CORE' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-gray-400 hover:text-gray-200'}`}>{`RAW ${coreRawLabel}`}</button>
+                                                <button type="button" onClick={() => setSelectedRawVariant('ENG')} className={`px-3 py-1 text-xs rounded ${activeRawVariant === 'ENG' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'text-gray-400 hover:text-gray-200'}`}>RAW ENG</button>
                                             </div>
                                         )}
-                                        {(!hasCoreRaw || !hasEngRaw) && (
-                                            <span className="text-xs text-gray-400 mr-1">{activeRawVariant === 'ENG' ? 'RAW ENG' : `RAW ${coreRawLabel}`}</span>
-                                        )}
-                                        <button
-                                            type="button"
-                                            onClick={zoomOut}
-                                            className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300"
-                                        >
-                                            Zoom -
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={zoomIn}
-                                            className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300"
-                                        >
-                                            Zoom +
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={resetZoom}
-                                            className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300"
-                                        >
-                                            Reset
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={goPrevImage}
-                                            disabled={selectedImageIndex <= 0}
-                                            className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300 disabled:opacity-40"
-                                        >
-                                            Anterior
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={goNextImage}
-                                            disabled={selectedImageIndex >= driveImages.length - 1}
-                                            className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300 disabled:opacity-40"
-                                        >
-                                            Siguiente
-                                        </button>
-                                        <span className="text-xs text-muted-dark ml-auto">
-                                            {driveImages.length > 0 && `${selectedImageIndex + 1}/${driveImages.length} · `}Zoom {Math.round(imageZoom * 100)}%
-                                        </span>
+                                        {(!hasCoreRaw || !hasEngRaw) && <span className="text-xs text-gray-400 mr-1">{activeRawVariant === 'ENG' ? 'RAW ENG' : `RAW ${coreRawLabel}`}</span>}
+                                        <button type="button" onClick={zoomOut} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300">Zoom -</button>
+                                        <button type="button" onClick={zoomIn} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300">Zoom +</button>
+                                        <button type="button" onClick={resetZoom} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300">Reset</button>
+                                        <button type="button" onClick={goPrevImage} disabled={selectedImageIndex <= 0} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300 disabled:opacity-40">Anterior</button>
+                                        <button type="button" onClick={goNextImage} disabled={selectedImageIndex >= driveImages.length - 1} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300 disabled:opacity-40">Siguiente</button>
+                                        <span className="text-xs text-muted-dark ml-auto">{driveImages.length > 0 && `${selectedImageIndex + 1}/${driveImages.length} · `}Zoom {Math.round(imageZoom * 100)}%</span>
                                     </div>
-
-                                    {driveImagesLoading && (
-                                        <div className="p-4 text-sm text-gray-300">Cargando paginas...</div>
-                                    )}
-                                    {!driveImagesLoading && driveImagesError && (
-                                        <div className="p-4 text-sm text-red-300">{driveImagesError}</div>
-                                    )}
-                                    {!driveImagesLoading && !driveImagesError && selectedImage && (
-                                        <div className="grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] min-h-[420px]">
-                                            <div className="border-r border-gray-700 p-2 max-h-[520px] overflow-y-auto space-y-2">
-                                                {driveImages.map((img, idx) => (
-                                                    <div
-                                                        key={img.id}
-                                                        className={`w-full text-left p-2 rounded border ${idx === selectedImageIndex
-                                                            ? 'border-primary/60 bg-primary/10'
-                                                            : 'border-gray-700 bg-surface-dark'
-                                                            }`}
-                                                    >
-                                                        <p className="text-xs text-white truncate">{img.name}</p>
-                                                        <div className="flex items-center justify-between mt-1">
-                                                            <p className="text-[10px] text-muted-dark">Pagina {idx + 1}</p>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setSelectedImageIndex(idx)}
-                                                                className="px-2 py-1 text-[10px] rounded border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20"
-                                                            >
-                                                                Ver
-                                                            </button>
+                                );
+                                const viewerBody = (
+                                    <>
+                                        {driveImagesLoading && <div className="p-4 text-sm text-gray-300">Cargando paginas...</div>}
+                                        {!driveImagesLoading && driveImagesError && <div className="p-4 text-sm text-red-300">{driveImagesError}</div>}
+                                        {!driveImagesLoading && !driveImagesError && selectedImage && (
+                                            <div className="grid grid-cols-[160px_minmax(0,1fr)] h-full">
+                                                <div className="border-r border-gray-700 p-2 overflow-y-auto space-y-2">
+                                                    {driveImages.map((img, idx) => (
+                                                        <div key={img.id} className={`w-full text-left p-2 rounded border ${idx === selectedImageIndex ? 'border-primary/60 bg-primary/10' : 'border-gray-700 bg-surface-dark'}`}>
+                                                            <p className="text-xs text-white truncate">{img.name}</p>
+                                                            <div className="flex items-center justify-between mt-1">
+                                                                <p className="text-[10px] text-muted-dark">Pag {idx + 1}</p>
+                                                                <button type="button" onClick={() => setSelectedImageIndex(idx)} className="px-2 py-1 text-[10px] rounded border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20">Ver</button>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <div className="p-3 min-w-0">
-                                                <div className="w-full h-[500px] overflow-auto rounded border border-gray-700 bg-black/40 flex items-start justify-center">
-                                                    <img
-                                                        src={`/api/drive/image?id=${selectedImage.id}`}
-                                                        alt={selectedImage.name}
-                                                        className="block w-full h-auto"
-                                                        style={{
-                                                            transform: `scale(${imageZoom})`,
-                                                            transformOrigin: 'top center',
-                                                            marginTop: '8px',
-                                                        }}
-                                                    />
+                                                    ))}
+                                                </div>
+                                                <div className="overflow-auto flex items-start justify-center bg-black/40 p-2">
+                                                    <img src={`/api/drive/image?id=${selectedImage.id}`} alt={selectedImage.name} className="block w-full h-auto" style={{ transform: `scale(${imageZoom})`, transformOrigin: 'top center', marginTop: '8px' }} />
                                                 </div>
                                             </div>
+                                        )}
+                                    </>
+                                );
+                                return (
+                                    <>
+                                        {/* Botones para abrir el visor */}
+                                        <div className="mb-3 flex gap-2">
+                                            <button type="button" onClick={() => setIsMobileViewer(true)} className="md:hidden inline-flex items-center gap-2 text-xs bg-gray-800 border border-gray-700 text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-700">
+                                                <span className="material-icons-round text-sm">fullscreen</span>Ver RAW
+                                            </button>
+                                            <button type="button" onClick={() => setIsFloatingViewer(v => !v)} className="hidden md:inline-flex items-center gap-2 text-xs bg-gray-800 border border-gray-700 text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-700">
+                                                <span className="material-icons-round text-sm">{isFloatingViewer ? 'picture_in_picture_alt' : 'open_in_new'}</span>
+                                                {isFloatingViewer ? 'Fijar visor' : 'Visor flotante'}
+                                            </button>
                                         </div>
-                                    )}
-                                </div>
-                            )}
+
+                                        {/* Visor inline (desktop cuando no es flotante, siempre visible en mobile como fallback) */}
+                                        {!isFloatingViewer && (
+                                            <div className="mb-4 border border-gray-700 rounded-lg bg-background-dark hidden md:block">
+                                                <div className="p-3 border-b border-gray-700">{viewerToolbar}</div>
+                                                <div style={{ height: 500 }}>{viewerBody}</div>
+                                            </div>
+                                        )}
+
+                                        {/* Visor flotante (solo desktop) */}
+                                        {isFloatingViewer && (
+                                            <div
+                                                ref={floatRef}
+                                                className="hidden md:flex flex-col fixed z-50 bg-[#0d1119] border border-gray-600 rounded-xl shadow-2xl overflow-hidden"
+                                                style={{ left: floatPos.x, top: floatPos.y, width: floatSize.w, height: floatSize.h, resize: 'both' }}
+                                            >
+                                                <div className="p-2 border-b border-gray-700 bg-[#090c12] cursor-move flex gap-2 items-center select-none" onMouseDown={onDragStart}>
+                                                    <span className="material-icons-round text-gray-500 text-sm">drag_indicator</span>
+                                                    <span className="text-xs text-gray-400 flex-1">{selectedRawLabel} — {selectedImage?.name || ''}</span>
+                                                    {viewerToolbar}
+                                                    <button type="button" onClick={() => setIsFloatingViewer(false)} className="ml-2 text-gray-400 hover:text-white"><span className="material-icons-round text-sm">close</span></button>
+                                                </div>
+                                                <div className="flex-1 overflow-hidden">{viewerBody}</div>
+                                            </div>
+                                        )}
+
+                                        {/* Modal fullscreen móvil con swipe */}
+                                        {isMobileViewer && (
+                                            <div className="md:hidden fixed inset-0 z-50 bg-black flex flex-col">
+                                                <div className="flex items-center justify-between p-3 border-b border-gray-800">
+                                                    <div className="flex gap-2 items-center">
+                                                        <button type="button" onClick={goPrevImage} disabled={selectedImageIndex <= 0} className="p-1 text-gray-400 disabled:opacity-30"><span className="material-icons-round">chevron_left</span></button>
+                                                        <span className="text-xs text-gray-400">{selectedImageIndex + 1}/{driveImages.length}</span>
+                                                        <button type="button" onClick={goNextImage} disabled={selectedImageIndex >= driveImages.length - 1} className="p-1 text-gray-400 disabled:opacity-30"><span className="material-icons-round">chevron_right</span></button>
+                                                    </div>
+                                                    <div className="flex gap-2 items-center">
+                                                        <button type="button" onClick={zoomOut} className="p-1 text-gray-400"><span className="material-icons-round text-sm">zoom_out</span></button>
+                                                        <button type="button" onClick={zoomIn} className="p-1 text-gray-400"><span className="material-icons-round text-sm">zoom_in</span></button>
+                                                        <button type="button" onClick={resetZoom} className="p-1 text-gray-400"><span className="material-icons-round text-sm">refresh</span></button>
+                                                        <button type="button" onClick={() => setIsMobileViewer(false)} className="p-1 text-gray-400"><span className="material-icons-round">close</span></button>
+                                                    </div>
+                                                </div>
+                                                <div className="flex-1 overflow-auto flex items-start justify-center" onTouchStart={onTouchStartSwipe} onTouchEnd={onTouchEndSwipe}>
+                                                    {selectedImage && <img src={`/api/drive/image?id=${selectedImage.id}`} alt={selectedImage.name} className="w-full h-auto" style={{ transform: `scale(${imageZoom})`, transformOrigin: 'top center' }} />}
+                                                </div>
+                                                <div className="p-2 border-t border-gray-800 flex gap-2 overflow-x-auto">
+                                                    {driveImages.map((img, idx) => (
+                                                        <button key={img.id} type="button" onClick={() => setSelectedImageIndex(idx)} className={`shrink-0 px-3 py-1 text-xs rounded border ${idx === selectedImageIndex ? 'border-primary/60 bg-primary/10 text-white' : 'border-gray-700 text-gray-400'}`}>
+                                                            {idx + 1}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                );
+                            })()}
                             {isTraductor && previewUrl && (
                                 <div className="mb-4 border border-gray-700 rounded-lg overflow-hidden bg-background-dark">
                                     <iframe
