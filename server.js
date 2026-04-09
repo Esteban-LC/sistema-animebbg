@@ -2,6 +2,10 @@ const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
+const busboy = require('busboy');
+
+// Global store for pre-parsed upload bodies (bypass Next.js 10MB limit)
+global.__uploadBuffers = new Map();
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -21,6 +25,42 @@ app.prepare().then(() => {
   const httpServer = createServer((req, res) => {
     try {
       const parsedUrl = parse(req.url, true);
+
+      // Intercept upload-redraw POST before Next.js touches the body (bypasses 10MB limit)
+      if (req.method === 'POST' && parsedUrl.pathname === '/api/drive/upload-redraw') {
+        const requestId = `${Date.now()}-${Math.random()}`;
+        const bb = busboy({ headers: req.headers, limits: { fileSize: 100 * 1024 * 1024 } });
+        let assignmentIdRaw = null;
+        let fileBuffer = null;
+        let fileName = null;
+        bb.on('field', (name, val) => { if (name === 'assignment_id') assignmentIdRaw = val; });
+        bb.on('file', (name, stream, info) => {
+          if (name === 'zip_file') {
+            fileName = info.filename;
+            const chunks = [];
+            stream.on('data', d => chunks.push(d));
+            stream.on('end', () => { fileBuffer = Buffer.concat(chunks); });
+          } else {
+            stream.resume();
+          }
+        });
+        bb.on('finish', () => {
+          global.__uploadBuffers.set(requestId, {
+            assignmentId: Number(assignmentIdRaw),
+            uploadFile: fileBuffer !== null ? { buffer: fileBuffer, name: fileName } : null,
+          });
+          req.headers['x-upload-request-id'] = requestId;
+          handle(req, res, parsedUrl);
+        });
+        bb.on('error', (err) => {
+          console.error('[upload interceptor] busboy error:', err);
+          res.statusCode = 500;
+          res.end(JSON.stringify({ error: 'Error procesando el archivo' }));
+        });
+        req.pipe(bb);
+        return;
+      }
+
       handle(req, res, parsedUrl);
     } catch (err) {
       console.error('Error occurred handling', req.url, err);
