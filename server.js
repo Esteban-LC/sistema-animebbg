@@ -55,8 +55,10 @@ app.prepare().then(() => {
           const filePath = path.join(UPLOAD_TMP_DIR, `${requestId}.bin`);
           fs.writeFileSync(metaPath, JSON.stringify(meta));
           if (fileBuffer) fs.writeFileSync(filePath, fileBuffer);
-          req.headers['x-upload-request-id'] = requestId;
-          handle(req, res, parsedUrl);
+          // Pasar requestId por query param (más confiable que header con Next.js)
+          const urlWithRid = `/api/drive/upload-redraw?_rid=${requestId}`;
+          const parsedWithRid = parse(urlWithRid, true);
+          handle(req, res, parsedWithRid);
         });
         bb.on('error', (err) => {
           console.error('[upload interceptor] busboy error:', err);

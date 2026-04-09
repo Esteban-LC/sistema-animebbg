@@ -89,7 +89,8 @@ export async function POST(request) {
         const isLeader = roles.includes('Lider de Grupo');
 
         // El body fue pre-parseado en server.js y guardado en disco para evitar el limite de 10MB de Next.js
-        const requestId = request.headers.get('x-upload-request-id');
+        const { searchParams } = new URL(request.url);
+        const requestId = searchParams.get('_rid');
         console.log('[upload-redraw] requestId:', requestId);
         if (!requestId) {
             return NextResponse.json({ error: 'No se recibio el archivo (interceptor fallido)' }, { status: 400 });
