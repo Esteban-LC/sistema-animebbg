@@ -28,6 +28,7 @@ app.prepare().then(() => {
 
       // Intercept upload-redraw POST before Next.js touches the body (bypasses 10MB limit)
       if (req.method === 'POST' && parsedUrl.pathname === '/api/drive/upload-redraw') {
+        console.log('[upload interceptor] interceptando upload, content-type:', req.headers['content-type']);
         const requestId = `${Date.now()}-${Math.random()}`;
         const bb = busboy({ headers: req.headers, limits: { fileSize: 100 * 1024 * 1024 } });
         let assignmentIdRaw = null;
@@ -45,6 +46,7 @@ app.prepare().then(() => {
           }
         });
         bb.on('finish', () => {
+          console.log('[upload interceptor] busboy finish, assignmentId:', assignmentIdRaw, 'fileSize:', fileBuffer?.length);
           global.__uploadBuffers.set(requestId, {
             assignmentId: Number(assignmentIdRaw),
             uploadFile: fileBuffer !== null ? { buffer: fileBuffer, name: fileName } : null,
