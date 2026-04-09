@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { getOrCreateFolderOAuth, uploadFileToDriveOAuth } from '@/lib/google-oauth';
 import { unzipSync } from 'fflate';
+import busboy from 'busboy';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -83,14 +84,43 @@ export async function POST(request) {
         const isAdmin = roles.includes('Administrador');
         const isLeader = roles.includes('Lider de Grupo');
 
-        const formData = await request.formData();
-        const assignmentId = Number(formData.get('assignment_id'));
-        const uploadFile = formData.get('zip_file');
+        // Parsear multipart con busboy para evitar el limite de 10MB de Next.js
+        const contentType = request.headers.get('content-type') || '';
+        const { assignmentId, uploadFile } = await new Promise((resolve, reject) => {
+            const bb = busboy({ headers: { 'content-type': contentType }, limits: { fileSize: 100 * 1024 * 1024 } });
+            let assignmentIdRaw = null;
+            let fileBuffer = null;
+            let fileName = null;
+            bb.on('field', (name, val) => { if (name === 'assignment_id') assignmentIdRaw = val; });
+            bb.on('file', (name, stream, info) => {
+                if (name === 'zip_file') {
+                    fileName = info.filename;
+                    const chunks = [];
+                    stream.on('data', d => chunks.push(d));
+                    stream.on('end', () => { fileBuffer = Buffer.concat(chunks); });
+                } else {
+                    stream.resume();
+                }
+            });
+            bb.on('finish', () => resolve({
+                assignmentId: Number(assignmentIdRaw),
+                uploadFile: fileBuffer !== null ? { buffer: fileBuffer, name: fileName } : null,
+            }));
+            bb.on('error', reject);
+            const body = request.body;
+            const reader = body.getReader();
+            const pump = () => reader.read().then(({ done, value }) => {
+                if (done) { bb.end(); return; }
+                bb.write(value);
+                pump();
+            }).catch(reject);
+            pump();
+        });
 
         if (!Number.isFinite(assignmentId) || assignmentId <= 0) {
             return NextResponse.json({ error: 'ID de asignacion invalido' }, { status: 400 });
         }
-        if (!uploadFile || typeof uploadFile === 'string') {
+        if (!uploadFile) {
             return NextResponse.json({ error: 'No se recibio el archivo' }, { status: 400 });
         }
 
@@ -138,7 +168,7 @@ export async function POST(request) {
             if (!mime) {
                 return NextResponse.json({ error: 'Formato no valido. Sube un archivo .docx o .doc' }, { status: 400 });
             }
-            const fileBuffer = Buffer.from(await uploadFile.arrayBuffer());
+            const fileBuffer = uploadFile.buffer;
             if (!hasValidMagicBytes(fileBuffer, filename)) {
                 return NextResponse.json({ error: 'El archivo no es un documento Word valido' }, { status: 400 });
             }
@@ -156,7 +186,7 @@ export async function POST(request) {
         }
 
         // Redrawer y Typer suben un zip con imagenes
-        const zipBuffer = Buffer.from(await uploadFile.arrayBuffer());
+        const zipBuffer = uploadFile.buffer;
         let entries;
         try {
             entries = unzipSync(new Uint8Array(zipBuffer));
