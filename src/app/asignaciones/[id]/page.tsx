@@ -276,7 +276,7 @@ export default function DetalleAsignacion() {
     const onTouchStartSwipe = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
     const onTouchEndSwipe = (e: React.TouchEvent) => {
         const diff = touchStartX.current - e.changedTouches[0].clientX;
-        if (Math.abs(diff) > 50) diff > 0 ? goNextImage() : goPrevImage();
+        if (Math.abs(diff) > 80) diff > 0 ? goNextImage() : goPrevImage();
     };
 
     useEffect(() => {
@@ -1000,7 +1000,7 @@ export default function DetalleAsignacion() {
 
                                         {/* Modal fullscreen móvil con swipe */}
                                         {isMobileViewer && (
-                                            <div className="md:hidden fixed inset-0 z-50 bg-black flex flex-col">
+                                            <div className="md:hidden fixed inset-0 z-50 bg-black flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
                                                 <div className="flex items-center justify-between p-3 border-b border-gray-800">
                                                     <div className="flex gap-2 items-center">
                                                         <button type="button" onClick={goPrevImage} disabled={selectedImageIndex <= 0} className="p-1 text-gray-400 disabled:opacity-30"><span className="material-icons-round">chevron_left</span></button>
