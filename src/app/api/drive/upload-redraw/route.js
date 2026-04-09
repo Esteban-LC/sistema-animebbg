@@ -85,6 +85,7 @@ export async function POST(request) {
 
         // El body fue pre-parseado en server.js para evitar el limite de 10MB de Next.js
         const requestId = request.headers.get('x-upload-request-id');
+        console.log('[upload-redraw] requestId:', requestId, 'buffers disponibles:', global.__uploadBuffers?.size);
         if (!requestId || !global.__uploadBuffers?.has(requestId)) {
             return NextResponse.json({ error: 'No se recibio el archivo (interceptor fallido)' }, { status: 400 });
         }
@@ -180,7 +181,9 @@ export async function POST(request) {
         }
 
         // destFolderId ya es la carpeta del proyecto, solo crear subcarpeta por capítulo
+        console.log('[upload-redraw] creando carpeta:', capFolderName, 'en', destFolderId);
         const capFolderId = await getOrCreateFolderOAuth(destFolderId, capFolderName);
+        console.log('[upload-redraw] carpeta creada:', capFolderId, 'subiendo', imageEntries.length, 'imagenes');
 
         const CONCURRENCY = 3;
         const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
@@ -198,6 +201,7 @@ export async function POST(request) {
                 const mime = getMimeType(fname, rol) || 'application/octet-stream';
                 await uploadFileToDriveOAuth(capFolderId, fname, mime, data);
                 uploadedCount++;
+                console.log('[upload-redraw] subido', uploadedCount, '/', sorted.length, fname);
             }));
         }
 
