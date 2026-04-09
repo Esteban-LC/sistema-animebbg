@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { zipSync } from 'fflate';
+import { getProjectCatalogEntries } from '@/lib/project-catalog';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -110,11 +111,26 @@ export async function GET(request) {
             LIMIT 1
         `).get(asignacion.proyecto_id, asignacion.capitulo);
 
-        if (!redrawAssignment?.drive_url) {
+        let redrawFolderUrl = redrawAssignment?.drive_url || null;
+
+        if (!redrawFolderUrl) {
+            // Fallback: buscar en el catálogo del proyecto
+            try {
+                const catalog = await getProjectCatalogEntries(db, { id: asignacion.proyecto_id });
+                const chapterEntry = (Array.isArray(catalog) ? catalog : []).find(
+                    (e) => Number(e?.numero) === Number(asignacion.capitulo)
+                );
+                redrawFolderUrl = chapterEntry?.redraw_url || null;
+            } catch {
+                redrawFolderUrl = null;
+            }
+        }
+
+        if (!redrawFolderUrl) {
             return NextResponse.json({ error: 'No hay caps limpios disponibles para este capitulo (redraw no completado)' }, { status: 404 });
         }
 
-        const folderId = extractFolderId(redrawAssignment.drive_url);
+        const folderId = extractFolderId(redrawFolderUrl);
         if (!folderId) {
             return NextResponse.json({ error: 'URL de la carpeta de caps limpios invalida' }, { status: 400 });
         }

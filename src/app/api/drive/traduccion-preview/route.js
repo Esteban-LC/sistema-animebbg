@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { getOAuthAccessToken } from '@/lib/google-oauth';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
+import { getProjectCatalogEntries } from '@/lib/project-catalog';
 
 export const dynamic = 'force-dynamic';
 
@@ -131,8 +132,34 @@ export async function GET(request) {
         }
 
         // Buscar directamente en la carpeta del proyecto filtrando por número de capítulo
-        const allFiles = await findDocxInFolder(proyectoFolderId);
-        const matched = allFiles.filter(f => matchesChapter(f.name, capNum));
+        let allFiles = await findDocxInFolder(proyectoFolderId);
+        let matched = allFiles.filter(f => matchesChapter(f.name, capNum));
+
+        // Fallback: buscar en la URL del catálogo para este capítulo específico
+        if (matched.length === 0) {
+            try {
+                const catalog = await getProjectCatalogEntries(db, { id: asignacion.proyecto_id });
+                const chapterEntry = (Array.isArray(catalog) ? catalog : []).find(
+                    (e) => Number(e?.numero) === Number(capNum)
+                );
+                const catalogTraductorUrl = chapterEntry?.traductor_url || '';
+                if (catalogTraductorUrl) {
+                    const catalogFolderId = extractFolderId(catalogTraductorUrl);
+                    if (catalogFolderId && catalogFolderId !== proyectoFolderId) {
+                        const catalogFiles = await findDocxInFolder(catalogFolderId);
+                        matched = catalogFiles.filter(f => matchesChapter(f.name, capNum));
+                        // Si la carpeta del catálogo tampoco tiene archivos con número de capítulo,
+                        // aceptar cualquier .docx en esa carpeta (puede ser el único archivo de ese cap)
+                        if (matched.length === 0 && catalogFiles.length > 0) {
+                            matched = catalogFiles;
+                        }
+                    }
+                }
+            } catch {
+                // ignorar error del catálogo, continuar con lo que hay
+            }
+        }
+
         const targetFile = matched.length > 0 ? matched[0] : null;
 
         if (!targetFile) {
