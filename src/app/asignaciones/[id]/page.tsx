@@ -1076,7 +1076,7 @@ export default function DetalleAsignacion() {
 
                                     {isTyperGuideOpen && (
                                         <div className="mt-4">
-                                            {!isTraductor && !isRedrawer && !isTyper && (
+                                            {!isTraductor && !isRedrawer && (
                                             <a
                                                 href={projectFontsConfig.fuentes_drive_url || currentDriveUrl || '#'}
                                                 target={(projectFontsConfig.fuentes_drive_url || currentDriveUrl) ? '_blank' : undefined}
