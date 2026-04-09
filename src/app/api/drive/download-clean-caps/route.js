@@ -114,7 +114,21 @@ export async function GET(request) {
         let redrawFolderUrl = redrawAssignment?.drive_url || null;
 
         if (!redrawFolderUrl) {
-            // Fallback: buscar en el catálogo del proyecto
+            // Fallback 1: leer el catálogo almacenado en la BD directamente (sin sincronizar Drive)
+            try {
+                const proyecto = await db.prepare(`SELECT capitulos_catalogo FROM proyectos WHERE id = ?`).get(asignacion.proyecto_id);
+                const catalog = JSON.parse(proyecto?.capitulos_catalogo || '[]');
+                const chapterEntry = Array.isArray(catalog)
+                    ? catalog.find((e) => Number(e?.numero) === Number(asignacion.capitulo))
+                    : null;
+                redrawFolderUrl = chapterEntry?.redraw_url || null;
+            } catch {
+                redrawFolderUrl = null;
+            }
+        }
+
+        if (!redrawFolderUrl) {
+            // Fallback 2: sincronizar catálogo completo con Drive
             try {
                 const catalog = await getProjectCatalogEntries(db, { id: asignacion.proyecto_id });
                 const chapterEntry = (Array.isArray(catalog) ? catalog : []).find(

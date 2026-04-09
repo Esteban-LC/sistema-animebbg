@@ -55,6 +55,29 @@ async function downloadFileById(fileId) {
     return Buffer.from(await res.arrayBuffer());
 }
 
+// Exporta un Google Docs a buffer .docx
+async function exportGoogleDocAsDocx(fileId) {
+    const token = await getOAuthAccessToken();
+    const mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const res = await fetch(`${GOOGLE_DRIVE_FILES_URL}/${fileId}/export?mimeType=${encodeURIComponent(mimeType)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`No se pudo exportar el documento: ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+}
+
+// Extrae el file ID de una URL de Google Docs o Drive file
+function extractGoogleFileId(url) {
+    const str = String(url || '').trim();
+    // Google Docs: docs.google.com/document/d/{id}/...
+    const docsMatch = str.match(/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]{20,})/);
+    if (docsMatch) return { id: docsMatch[1], isGoogleDoc: true };
+    // Drive file: drive.google.com/file/d/{id}/...
+    const fileMatch = str.match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]{20,})/);
+    if (fileMatch) return { id: fileMatch[1], isGoogleDoc: false };
+    return null;
+}
+
 export async function GET(request) {
     try {
         const { searchParams } = new URL(request.url);
@@ -107,8 +130,6 @@ export async function GET(request) {
 
         const capNum = Number(asignacion.capitulo);
 
-        // Usar la carpeta de traducciones configurada por proyecto en la BD
-        // con fallback a la variable de entorno global (si existe)
         const extractFolderId = (val) => {
             if (!val) return '';
             const str = String(val).trim();
@@ -116,51 +137,129 @@ export async function GET(request) {
             return match ? match[0] : str;
         };
 
-        let proyectoFolderId = extractFolderId(asignacion.traductor_folder_id);
+        // Recopilar todas las carpetas candidatas donde buscar el .docx
+        const candidateFolderIds = [];
+        const seenFolderIds = new Set();
+        // URLs directas a archivos (Google Docs o Drive files), en orden de preferencia
+        const directFileUrls = [];
+        const seenFileIds = new Set();
 
-        if (!proyectoFolderId) {
-            // Fallback: buscar por nombre en la carpeta global si está configurada
+        const addFolder = (id) => {
+            const fid = extractFolderId(id);
+            if (fid && !seenFolderIds.has(fid)) {
+                seenFolderIds.add(fid);
+                candidateFolderIds.push(fid);
+            }
+        };
+
+        const addDirectUrl = (url) => {
+            const parsed = extractGoogleFileId(url);
+            if (parsed && !seenFileIds.has(parsed.id)) {
+                seenFileIds.add(parsed.id);
+                directFileUrls.push(parsed);
+            }
+        };
+
+        // Clasifica una URL: si es Google Docs/file directo la agrega como archivo directo,
+        // si es carpeta de Drive la agrega como carpeta candidata
+        const addUrl = (url) => {
+            if (!url) return;
+            const str = String(url).trim();
+            if (str.includes('docs.google.com') || str.includes('drive.google.com/file/')) {
+                addDirectUrl(str);
+            } else {
+                addFolder(str);
+            }
+        };
+
+        // 1. Carpeta de traducciones configurada en el proyecto
+        addFolder(asignacion.traductor_folder_id);
+
+        // 2. Carpeta global de traducciones (env) → buscar subcarpeta del proyecto
+        if (candidateFolderIds.length === 0) {
             const tradFolderId = process.env.TRADUCCIONES_FOLDER_ID;
-            if (!tradFolderId) {
-                return NextResponse.json({ error: 'Carpeta de traducciones no configurada para este proyecto. Configurala en la seccion de Proyectos.' }, { status: 404 });
-            }
-            const proyectoTitulo = String(asignacion.proyecto_titulo || `Proyecto_${asignacion.proyecto_id}`);
-            proyectoFolderId = await findFolderByName(tradFolderId, proyectoTitulo);
-            if (!proyectoFolderId) {
-                return NextResponse.json({ error: 'No hay traduccion disponible para este proyecto' }, { status: 404 });
+            if (tradFolderId) {
+                const proyectoTitulo = String(asignacion.proyecto_titulo || `Proyecto_${asignacion.proyecto_id}`);
+                try {
+                    const globalSubfolder = await findFolderByName(tradFolderId, proyectoTitulo);
+                    addFolder(globalSubfolder);
+                } catch { /* ignorar */ }
             }
         }
 
-        // Buscar directamente en la carpeta del proyecto filtrando por número de capítulo
-        let allFiles = await findDocxInFolder(proyectoFolderId);
-        let matched = allFiles.filter(f => matchesChapter(f.name, capNum));
+        // 3. drive_url de la asignación completada del Traductor para este capítulo
+        try {
+            const traductorAssignment = await db.prepare(`
+                SELECT drive_url FROM asignaciones
+                WHERE proyecto_id = ? AND capitulo = ? AND rol IN ('Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP')
+                  AND estado = 'Completado' AND drive_url IS NOT NULL AND TRIM(drive_url) != ''
+                ORDER BY completado_en DESC LIMIT 1
+            `).get(asignacion.proyecto_id, asignacion.capitulo);
+            addUrl(traductorAssignment?.drive_url);
+        } catch { /* ignorar */ }
 
-        // Fallback: buscar en la URL del catálogo para este capítulo específico
-        if (matched.length === 0) {
+        // 4a. Catálogo almacenado en BD (sin sincronizar Drive, más rápido y confiable)
+        try {
+            const proyecto = await db.prepare(`SELECT capitulos_catalogo FROM proyectos WHERE id = ?`).get(asignacion.proyecto_id);
+            const storedCatalog = JSON.parse(proyecto?.capitulos_catalogo || '[]');
+            const storedEntry = Array.isArray(storedCatalog)
+                ? storedCatalog.find((e) => Number(e?.numero) === Number(capNum))
+                : null;
+            addUrl(storedEntry?.traductor_url);
+        } catch { /* ignorar */ }
+
+        // 4b. Catálogo sincronizado con Drive (fallback más completo)
+        try {
+            const catalog = await getProjectCatalogEntries(db, { id: asignacion.proyecto_id });
+            const chapterEntry = (Array.isArray(catalog) ? catalog : []).find(
+                (e) => Number(e?.numero) === Number(capNum)
+            );
+            addUrl(chapterEntry?.traductor_url);
+        } catch { /* ignorar */ }
+
+        if (candidateFolderIds.length === 0 && directFileUrls.length === 0) {
+            return NextResponse.json({ error: 'Carpeta de traducciones no configurada para este proyecto. Configurala en la seccion de Proyectos.' }, { status: 404 });
+        }
+
+        // Buscar el .docx en cada carpeta candidata
+        let targetFile = null;
+        for (const folderId of candidateFolderIds) {
             try {
-                const catalog = await getProjectCatalogEntries(db, { id: asignacion.proyecto_id });
-                const chapterEntry = (Array.isArray(catalog) ? catalog : []).find(
-                    (e) => Number(e?.numero) === Number(capNum)
-                );
-                const catalogTraductorUrl = chapterEntry?.traductor_url || '';
-                if (catalogTraductorUrl) {
-                    const catalogFolderId = extractFolderId(catalogTraductorUrl);
-                    if (catalogFolderId && catalogFolderId !== proyectoFolderId) {
-                        const catalogFiles = await findDocxInFolder(catalogFolderId);
-                        matched = catalogFiles.filter(f => matchesChapter(f.name, capNum));
-                        // Si la carpeta del catálogo tampoco tiene archivos con número de capítulo,
-                        // aceptar cualquier .docx en esa carpeta (puede ser el único archivo de ese cap)
-                        if (matched.length === 0 && catalogFiles.length > 0) {
-                            matched = catalogFiles;
-                        }
-                    }
+                const files = await findDocxInFolder(folderId);
+                const matched = files.filter(f => matchesChapter(f.name, capNum));
+                if (matched.length > 0) {
+                    targetFile = matched[0];
+                    break;
                 }
-            } catch {
-                // ignorar error del catálogo, continuar con lo que hay
-            }
+                // Si la carpeta tiene exactamente un .docx y no hay otros capítulos en juego,
+                // asumirlo como el archivo correcto (carpeta específica del capítulo)
+                if (files.length === 1 && candidateFolderIds.indexOf(folderId) > 0) {
+                    targetFile = files[0];
+                    break;
+                }
+            } catch { /* ignorar carpeta inaccesible */ }
         }
 
-        const targetFile = matched.length > 0 ? matched[0] : null;
+        // Si no se encontró en carpetas, intentar URLs directas (Google Docs o archivos Drive)
+        if (!targetFile && directFileUrls.length > 0) {
+            for (const { id, isGoogleDoc } of directFileUrls) {
+                try {
+                    const fileBuffer = isGoogleDoc
+                        ? await exportGoogleDocAsDocx(id)
+                        : await downloadFileById(id);
+                    const result = await mammoth.convertToHtml({ buffer: fileBuffer });
+                    const clean = sanitizeHtml(result.value, {
+                        allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']),
+                        allowedAttributes: {
+                            ...sanitizeHtml.defaults.allowedAttributes,
+                            img: ['src', 'alt', 'width', 'height'],
+                        },
+                        disallowedTagsMode: 'discard',
+                    });
+                    return NextResponse.json({ html: clean });
+                } catch { /* intentar el siguiente */ }
+            }
+        }
 
         if (!targetFile) {
             return NextResponse.json({ error: 'No se encontro el archivo de traduccion para este capitulo' }, { status: 404 });
