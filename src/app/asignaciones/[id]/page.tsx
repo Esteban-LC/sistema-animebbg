@@ -724,7 +724,7 @@ export default function DetalleAsignacion() {
             <div className="flex-1 flex flex-col items-center justify-center bg-background-dark text-center p-8">
                 <h1 className="text-2xl font-bold text-white mb-2">Asignacion no encontrada</h1>
                 {!!loadError && <p className="text-xs text-red-300 mb-2">{loadError}</p>}
-                <Link href="/asignaciones" className="text-primary hover:underline">Volver al listado</Link>
+                <Link href={(isAdmin || isLeader) ? '/asignaciones' : '/staff'} className="text-primary hover:underline">Volver al listado</Link>
             </div>
         );
     }
@@ -734,7 +734,7 @@ export default function DetalleAsignacion() {
             <div className="max-w-4xl mx-auto space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <Link href="/asignaciones" className="text-muted-dark hover:text-white text-sm">Volver a la lista</Link>
+                        <Link href={(isAdmin || isLeader) ? '/asignaciones' : '/staff'} className="text-muted-dark hover:text-white text-sm">Volver a la lista</Link>
                         <h1 className="font-display font-bold text-2xl text-white mt-2">{asignacion.descripcion}</h1>
                     </div>
                     {isAdmin && !isStaffView && (

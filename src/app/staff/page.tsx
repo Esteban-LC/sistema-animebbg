@@ -94,43 +94,6 @@ function normalizeUrlValue(value: unknown) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
-function isValidDeliveryUrlForRole(role: string, rawUrl: string) {
-    const value = normalizeUrlValue(rawUrl);
-    if (!value) return false;
-    try {
-        const url = new URL(value);
-        const host = String(url.hostname || '').toLowerCase();
-        const path = String(url.pathname || '').toLowerCase();
-        const roleLower = String(role || '').toLowerCase();
-
-        if (roleLower === 'traductor') {
-            const isGoogleDoc = host.includes('docs.google.com') && path.includes('/document/');
-            const isDriveFile = host.includes('drive.google.com') && (
-                /\/file\/d\/[^/?#]+/i.test(path) ||
-                (path.includes('/open') && !!url.searchParams.get('id'))
-            );
-            return isGoogleDoc || isDriveFile;
-        }
-
-        if (roleLower === 'typer' || roleLower === 'redrawer') {
-            if (!host.includes('drive.google.com')) return false;
-            const hasFolderPath = /\/drive\/folders\/[^/?#]+/i.test(path);
-            const hasFolderOpenId = path.includes('/open') && !!url.searchParams.get('id');
-            return hasFolderPath || hasFolderOpenId;
-        }
-
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-function getDeliveryPlaceholder(role: string) {
-    const roleLower = String(role || '').toLowerCase();
-    if (roleLower === 'traductor') return 'https://docs.google.com/document/d/...';
-    if (roleLower === 'typer' || roleLower === 'redrawer') return 'https://drive.google.com/drive/folders/...';
-    return 'https://...';
-}
 
 export default function StaffPage() {
     const { user } = useUser();
@@ -145,9 +108,8 @@ export default function StaffPage() {
     const [filterStatus, setFilterStatus] = useState('todos');
     const [periodStats, setPeriodStats] = useState<PeriodStats | null>(null);
     const [completionTarget, setCompletionTarget] = useState<Asignacion | null>(null);
-    const [completionLink, setCompletionLink] = useState('');
-    const [showCompletionConfirm, setShowCompletionConfirm] = useState(false);
-    const [showFinalCompletionConfirm, setShowFinalCompletionConfirm] = useState(false);
+    const [deliveryFile, setDeliveryFile] = useState<File | null>(null);
+    const [deliveryUploading, setDeliveryUploading] = useState(false);
 
     const [selfForm, setSelfForm] = useState({
         proyecto_id: '',
@@ -512,57 +474,51 @@ export default function StaffPage() {
 
     const openCompletionFlow = (asignacion: Asignacion) => {
         setCompletionTarget(asignacion);
-        setCompletionLink(normalizeUrlValue(asignacion.drive_url || ''));
-        setShowCompletionConfirm(false);
-        setShowFinalCompletionConfirm(false);
+        setDeliveryFile(null);
     };
 
     const closeCompletionFlow = () => {
-        if (processingId !== null) return;
+        if (deliveryUploading) return;
         setCompletionTarget(null);
-        setCompletionLink('');
-        setShowCompletionConfirm(false);
-        setShowFinalCompletionConfirm(false);
+        setDeliveryFile(null);
     };
 
-    const continueCompletionFlow = () => {
-        if (!completionTarget) return;
-        if (!isValidDeliveryUrlForRole(completionTarget.rol, completionLink)) {
-            showToast('Debes agregar un enlace de entrega valido antes de marcar como completado.', 'error');
-            return;
-        }
-        setShowCompletionConfirm(true);
+    const getFileAcceptForRole = (role: string) => {
+        const r = String(role || '').toLowerCase();
+        if (r === 'redrawer' || r === 'typer') return '.zip';
+        if (r === 'traductor' || r.startsWith('traductor')) return '.docx,.doc,.pdf';
+        return '.zip,.docx,.doc,.pdf';
     };
 
-    const confirmCompletionFlow = () => {
-        setShowCompletionConfirm(false);
-        setShowFinalCompletionConfirm(true);
+    const getFileDescForRole = (role: string) => {
+        const r = String(role || '').toLowerCase();
+        if (r === 'redrawer') return 'Seleccionar archivo .zip (paginas limpias)';
+        if (r === 'typer') return 'Seleccionar archivo .zip (paginas typeadas)';
+        if (r === 'traductor' || r.startsWith('traductor')) return 'Seleccionar archivo (.docx, .doc, .pdf)';
+        return 'Seleccionar archivo';
     };
 
     const submitCompletionFlow = async () => {
-        if (!completionTarget) return;
-        setProcessingId(completionTarget.id);
+        if (!completionTarget || !deliveryFile || deliveryUploading) return;
+        setDeliveryUploading(true);
         try {
-            const res = await fetch(`/api/asignaciones/${completionTarget.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    estado: 'Completado',
-                    drive_url: normalizeUrlValue(completionLink),
-                }),
-            });
+            const form = new FormData();
+            form.append('assignment_id', String(completionTarget.id));
+            form.append('zip_file', deliveryFile);
+            const res = await fetch('/api/drive/upload-redraw', { method: 'POST', body: form });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(data?.error || 'No se pudo marcar como completado');
+                showToast(data?.error || 'Error al subir el archivo', 'error');
+                return;
             }
             await fetchAsignaciones();
             await fetchPeriodStats();
             closeCompletionFlow();
-            showToast('Tarea completada correctamente', 'success');
+            showToast('Archivo subido y tarea completada correctamente', 'success');
         } catch (error: unknown) {
-            showToast(getErrorMessage(error, 'Error al completar tarea'), 'error');
+            showToast(getErrorMessage(error, 'Error al subir el archivo'), 'error');
         } finally {
-            setProcessingId(null);
+            setDeliveryUploading(false);
         }
     };
 
@@ -904,7 +860,7 @@ export default function StaffPage() {
                                                                 e.stopPropagation();
                                                             openCompletionFlow(asig);
                                                             }}
-                                                            disabled={processingId === asig.id}
+                                                            disabled={deliveryUploading}
                                                             className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold"
                                                         >
                                                             Entregar
@@ -944,7 +900,7 @@ export default function StaffPage() {
             {completionTarget && (
                 <div className="fixed inset-0 z-[55] bg-black/80 flex items-center justify-center p-4">
                     <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-surface-dark shadow-2xl overflow-hidden">
-                        <div className="p-5 border-b border-gray-800">
+                        <div className="p-6 border-b border-gray-800">
                             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-400">Entrega</p>
                             <h3 className="text-xl font-display font-bold text-white mt-1">Entregar</h3>
                             <p className="text-sm text-gray-300 mt-2">
@@ -953,60 +909,47 @@ export default function StaffPage() {
                                 {` (${completionTarget.rol})`}
                             </p>
                         </div>
-                        <div className="p-5 space-y-4">
-                            <div>
-                                <label className="block text-xs text-muted-dark font-bold uppercase tracking-wider mb-2">
-                                    Enlace de entrega
-                                </label>
+                        <div className="p-6 space-y-4">
+                            <label className="block w-full cursor-pointer rounded-xl border-2 border-dashed border-gray-700 hover:border-emerald-500/50 p-6 text-center transition-colors">
+                                <span className="material-icons-round text-3xl text-muted-dark mb-2 block">upload_file</span>
+                                <span className="text-sm text-gray-300">
+                                    {deliveryFile ? deliveryFile.name : getFileDescForRole(completionTarget.rol)}
+                                </span>
                                 <input
-                                    type="url"
-                                    value={completionLink}
-                                    onChange={(e) => setCompletionLink(e.target.value)}
-                                    className="w-full bg-background-dark border border-gray-700 rounded-xl px-3 py-3 text-white"
-                                    placeholder={getDeliveryPlaceholder(completionTarget.rol)}
+                                    type="file"
+                                    accept={getFileAcceptForRole(completionTarget.rol)}
+                                    className="hidden"
+                                    onChange={(e) => setDeliveryFile(e.target.files?.[0] || null)}
                                 />
-                            </div>
-                            <p className="text-[12px] text-muted-dark leading-relaxed">
-                                Al completar, la tarea dejara de verse en tus activas y pasara al historial/completados.
+                            </label>
+                            {deliveryFile && (
+                                <p className="text-[11px] text-muted-dark">
+                                    Tamaño: {(deliveryFile.size / 1024 / 1024).toFixed(1)} MB
+                                </p>
+                            )}
+                            <p className="text-[11px] text-muted-dark leading-relaxed">
+                                Al subir, la tarea dejara de mostrarse en tus tareas activas.
                             </p>
                         </div>
-                        <div className="p-5 pt-0 flex gap-3">
+                        <div className="p-6 pt-0 flex gap-3">
                             <button
                                 onClick={closeCompletionFlow}
-                                disabled={processingId === completionTarget.id}
-                                className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                                disabled={deliveryUploading}
+                                className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-300 hover:text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
                             >
                                 Cancelar
                             </button>
                             <button
-                                onClick={continueCompletionFlow}
-                                disabled={processingId === completionTarget.id}
-                                className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+                                onClick={submitCompletionFlow}
+                                disabled={!deliveryFile || deliveryUploading}
+                                className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50"
                             >
-                                Continuar
+                                {deliveryUploading ? 'Subiendo...' : 'Subir y completar'}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
-
-            <ConfirmModal
-                isOpen={showCompletionConfirm}
-                title="Confirmar cierre"
-                message="Estas seguro de marcar esta tarea como completada? Se registrara el enlace de entrega y saldra de tus tareas activas."
-                onConfirm={confirmCompletionFlow}
-                onCancel={() => setShowCompletionConfirm(false)}
-                confirmText="Si, continuar"
-            />
-
-            <ConfirmModal
-                isOpen={showFinalCompletionConfirm}
-                title="Ultima confirmacion"
-                message="Esta accion finaliza la tarea ahora mismo. Confirma solo si el enlace es el definitivo."
-                onConfirm={submitCompletionFlow}
-                onCancel={() => setShowFinalCompletionConfirm(false)}
-                confirmText={processingId === completionTarget?.id ? 'Guardando...' : 'Completar tarea'}
-            />
         </div>
     );
 }
