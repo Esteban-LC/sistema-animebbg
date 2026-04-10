@@ -382,6 +382,7 @@ export default function ProyectosPage() {
     const [roleSyncLoading, setRoleSyncLoading] = useState(false);
     const [roleSyncError, setRoleSyncError] = useState('');
     const [roleSyncInfo, setRoleSyncInfo] = useState('');
+    const [expandedChapterIds, setExpandedChapterIds] = useState<Set<number>>(new Set());
     const [syncAllLoading, setSyncAllLoading] = useState(false);
     const [syncAllError, setSyncAllError] = useState('');
     const [syncAllInfo, setSyncAllInfo] = useState('');
@@ -818,6 +819,41 @@ export default function ProyectosPage() {
                 capitulos_catalogo: updated,
                 capitulos_totales: getChapterMax(updated),
             };
+        });
+    };
+
+    const updateChapterTraductorUrl = (chapter: number, nextUrl: string) => {
+        setCurrentProject((prev) => {
+            const updated = normalizeChapterCatalog(
+                (prev.capitulos_catalogo || []).map((item) =>
+                    Number(item.numero) === Number(chapter)
+                        ? { ...item, traductor_url: nextUrl }
+                        : item
+                )
+            );
+            return { ...prev, capitulos_catalogo: updated, capitulos_totales: getChapterMax(updated) };
+        });
+    };
+
+    const updateChapterTyperUrl = (chapter: number, nextUrl: string) => {
+        setCurrentProject((prev) => {
+            const updated = normalizeChapterCatalog(
+                (prev.capitulos_catalogo || []).map((item) =>
+                    Number(item.numero) === Number(chapter)
+                        ? { ...item, typer_url: nextUrl }
+                        : item
+                )
+            );
+            return { ...prev, capitulos_catalogo: updated, capitulos_totales: getChapterMax(updated) };
+        });
+    };
+
+    const toggleExpandedChapter = (numero: number) => {
+        setExpandedChapterIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(numero)) next.delete(numero);
+            else next.add(numero);
+            return next;
         });
     };
 
@@ -1452,11 +1488,26 @@ export default function ProyectosPage() {
                                                         key={cap.numero}
                                                         className="bg-surface-darker border border-gray-700 rounded-lg px-3 py-2.5"
                                                     >
-                                                        <div className="flex items-center gap-2 mb-2">
-                                                            <div className="w-9 h-9 rounded bg-background-dark border border-gray-700 flex items-center justify-center">
-                                                                <span className="material-icons-round text-[18px] text-gray-300">menu_book</span>
+                                                        <div className="flex items-center justify-between gap-2 mb-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-9 h-9 rounded bg-background-dark border border-gray-700 flex items-center justify-center">
+                                                                    <span className="material-icons-round text-[18px] text-gray-300">menu_book</span>
+                                                                </div>
+                                                                <span className="text-base text-gray-100">Capitulo</span>
                                                             </div>
-                                                            <span className="text-base text-gray-100">Capitulo</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => toggleExpandedChapter(cap.numero)}
+                                                                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-200"
+                                                                title="Ver URLs de traducción y caps limpios"
+                                                            >
+                                                                {(cap.traductor_url || cap.typer_url) && (
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block mr-0.5" title="Tiene URLs de rol" />
+                                                                )}
+                                                                <span className="material-icons-round text-[15px]">
+                                                                    {expandedChapterIds.has(cap.numero) ? 'expand_less' : 'expand_more'}
+                                                                </span>
+                                                            </button>
                                                         </div>
                                                         <div className={`grid grid-cols-1 ${isSecondaryRawEnabled ? 'sm:grid-cols-[1fr_2fr_2fr_auto]' : 'sm:grid-cols-[1fr_2fr_auto]'} gap-2`}>
                                                             <input
@@ -1490,6 +1541,30 @@ export default function ProyectosPage() {
                                                                 Quitar
                                                             </button>
                                                         </div>
+                                                        {expandedChapterIds.has(cap.numero) && (
+                                                            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                <div>
+                                                                    <p className="text-[10px] text-gray-500 mb-1">Traducción</p>
+                                                                    <input
+                                                                        type="url"
+                                                                        value={cap.traductor_url || ''}
+                                                                        onChange={(e) => updateChapterTraductorUrl(cap.numero, e.target.value)}
+                                                                        className="w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-primary"
+                                                                        placeholder="Traducción https://drive.google.com/..."
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-[10px] text-gray-500 mb-1">Caps limpios (Typeo)</p>
+                                                                    <input
+                                                                        type="url"
+                                                                        value={cap.typer_url || ''}
+                                                                        onChange={(e) => updateChapterTyperUrl(cap.numero, e.target.value)}
+                                                                        className="w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-primary"
+                                                                        placeholder="Caps limpios https://drive.google.com/..."
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 ))}
                                                 {rawCatalogSorted.length === 0 && (

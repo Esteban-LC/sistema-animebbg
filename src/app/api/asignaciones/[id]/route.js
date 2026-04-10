@@ -102,7 +102,7 @@ function getCoreRawLabelByProjectType(tipo) {
 async function getProjectChapterUrl(db, proyectoId, capitulo, rol) {
     if (!proyectoId || capitulo === null || capitulo === undefined) return null;
     const proyecto = await db.prepare(`
-        SELECT id, capitulos_catalogo, drive_folder_id
+        SELECT id, capitulos_catalogo, drive_folder_id, raw_folder_id, raw_eng_folder_id, traductor_folder_id, redraw_folder_id, typer_folder_id
         FROM proyectos
         WHERE id = ?
     `).get(proyectoId);
@@ -175,7 +175,7 @@ async function getAsignacionDetalle(db, id, hasTraductorTipoColumn) {
 
     if (!asignacion) return null;
     const proyecto = await db.prepare(`
-        SELECT id, tipo, capitulos_catalogo, drive_folder_id
+        SELECT id, tipo, capitulos_catalogo, drive_folder_id, raw_folder_id, raw_eng_folder_id, traductor_folder_id, redraw_folder_id, typer_folder_id
         FROM proyectos
         WHERE id = ?
     `).get(asignacion.proyecto_id);
