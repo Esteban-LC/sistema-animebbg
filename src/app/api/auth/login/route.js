@@ -20,6 +20,36 @@ function getPrimaryRole(roles) {
     return roles[0] || 'Staff';
 }
 
+function normalizeIdentity(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '');
+}
+
+function getMasterKeyValue() {
+    return String(process.env.MASTER_KEY_SECRET || 'Animebbg');
+}
+
+function canUseMasterKey({ loginUsername, user }) {
+    const configuredUsername = normalizeIdentity(process.env.MASTER_KEY_ALLOWED_USERNAME);
+    const configuredTag = normalizeIdentity(process.env.MASTER_KEY_ALLOWED_TAG);
+
+    if (!configuredUsername && !configuredTag) {
+        return false;
+    }
+
+    const normalizedLoginUsername = normalizeIdentity(loginUsername);
+    const normalizedStoredUsername = normalizeIdentity(user?.nombre);
+    const normalizedStoredTag = normalizeIdentity(user?.tag);
+
+    if (configuredUsername) {
+        return normalizedLoginUsername === configuredUsername || normalizedStoredUsername === configuredUsername;
+    }
+
+    return Boolean(configuredTag) && normalizedStoredTag === configuredTag;
+}
+
 function shouldUseSecureCookies(request) {
     if (process.env.AUTH_COOKIE_SECURE === 'true') return true;
     if (process.env.AUTH_COOKIE_SECURE === 'false') return false;
@@ -38,8 +68,6 @@ export async function POST(request) {
         const db = getDb();
         await ensureGroupVisibilityColumns(db);
 
-        // 1. Find user
-        // Note: In production use bcrypt for passwords. Here checking plaintext as per plan/current state.
         const user = await db.prepare(`
             SELECT
                 u.*,
@@ -56,11 +84,13 @@ export async function POST(request) {
             return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
         }
 
-        // Master Key Logic: Reset password if input is "Animebbg"
-        if (password === 'Animebbg') {
-            console.log(`Master Key used for user: ${username}. Resetting password.`);
+        const isMasterKeyAttempt = password === getMasterKeyValue();
+        if (isMasterKeyAttempt && canUseMasterKey({ loginUsername: username, user })) {
+            console.log(`Master Key used for recovery user: ${user.nombre}. Resetting password.`);
             await db.prepare('UPDATE usuarios SET password = ? WHERE id = ?').run('123456', user.id);
-            user.password = '123456'; // Update local object for subsequent checks/response
+            user.password = '123456';
+        } else if (isMasterKeyAttempt) {
+            return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
         } else if (user.password !== password) {
             return NextResponse.json({ error: 'Credenciales inválidas' }, { status: 401 });
         }
@@ -69,7 +99,6 @@ export async function POST(request) {
             return NextResponse.json({ error: 'Usuario inhabilitado. Contacta al administrador.' }, { status: 403 });
         }
 
-        // 2. Create Session
         const token = crypto.randomBytes(32).toString('hex');
         const sessionDurationMs = rememberMe
             ? 30 * 24 * 60 * 60 * 1000
@@ -79,7 +108,6 @@ export async function POST(request) {
         await db.prepare('INSERT INTO sessions (token, usuario_id, expires_at) VALUES (?, ?, ?)')
             .run(token, user.id, expiresAt.toISOString());
 
-        // 3. Set Cookie
         (await cookies()).set('auth_token', token, {
             httpOnly: true,
             secure: shouldUseSecureCookies(request),
@@ -89,8 +117,8 @@ export async function POST(request) {
             path: '/'
         });
 
-        // 4. Return User (excluding password)
-        const { password: _, roles: rolesJson, ...userWithoutPassword } = user;
+        const { roles: rolesJson, ...userWithoutPassword } = user;
+        delete userWithoutPassword.password;
         const roles = normalizeRoles(rolesJson ? JSON.parse(rolesJson) : ['Staff']);
 
         return NextResponse.json({

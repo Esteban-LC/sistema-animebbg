@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
+const ACTIVE_ASSIGNMENT_STATES = ['Pendiente', 'En Proceso'];
 
 async function getSession(db) {
     const cookieStore = await cookies();
@@ -20,6 +21,19 @@ async function getSession(db) {
     return { ...session, roles, isAdmin: roles.includes('Administrador'), isLeader: roles.includes('Lider de Grupo') };
 }
 
+async function countActiveAssignments(db, usuarioId) {
+    if (!usuarioId) return 0;
+
+    const row = await db.prepare(`
+        SELECT COUNT(*) AS total
+        FROM asignaciones
+        WHERE usuario_id = ?
+          AND estado IN (${ACTIVE_ASSIGNMENT_STATES.map(() => '?').join(', ')})
+    `).get(usuarioId, ...ACTIVE_ASSIGNMENT_STATES);
+
+    return Number(row?.total || 0);
+}
+
 // GET: Admin/Líder ve solicitudes pendientes de su grupo; staff Nuevo ve la suya propia
 export async function GET() {
     try {
@@ -29,12 +43,17 @@ export async function GET() {
 
         // Staff Nuevo: devolver solo si tiene solicitud pendiente propia
         if (!session.isAdmin && !session.isLeader) {
+            const activeAssignments = await countActiveAssignments(db, session.usuario_id);
             const mine = await db.prepare(`
                 SELECT id, rol, estado, creado_en FROM solicitudes_asignacion
                 WHERE usuario_id = ? AND estado = 'Pendiente'
                 LIMIT 1
             `).get(session.usuario_id);
-            return NextResponse.json({ pendiente: !!mine, solicitud: mine || null });
+            return NextResponse.json({
+                pendiente: !!mine,
+                solicitud: mine || null,
+                active_assignment: activeAssignments > 0,
+            });
         }
 
         // Admin/Líder: ver pendientes de su grupo (siempre filtrado por grupo)
@@ -92,6 +111,13 @@ export async function POST(request) {
         `).get(session.usuario_id);
         if (existing) {
             return NextResponse.json({ error: 'Ya tienes una solicitud pendiente. Espera a que sea atendida.' }, { status: 409 });
+        }
+
+        const activeAssignments = await countActiveAssignments(db, session.usuario_id);
+        if (activeAssignments > 0) {
+            return NextResponse.json({
+                error: 'Ya tienes una asignacion activa. Completa o libera la actual antes de solicitar otra.'
+            }, { status: 409 });
         }
 
         const result = await db.prepare(`

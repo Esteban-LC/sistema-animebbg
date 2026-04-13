@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { ensureAssignmentReviewSchema, getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { getOrCreateFolderOAuth, uploadFileToDriveOAuth } from '@/lib/google-oauth';
+import { notifyRoles } from '@/lib/notifications';
 import { unzipSync } from 'fflate';
 import fs from 'fs';
 import path from 'path';
@@ -75,6 +76,7 @@ export async function POST(request) {
         if (!token) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
         const db = getDb();
+        await ensureAssignmentReviewSchema(db);
         const session = await db.prepare(`
             SELECT s.usuario_id, u.roles, u.grupo_id
             FROM sessions s
@@ -132,6 +134,7 @@ export async function POST(request) {
         if (!isAdmin && !canViewAsLeader && !isOwner) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
         }
+        const requiresReview = isOwner && !isAdmin && !isLeader;
 
         const rolRaw = String(asignacion.rol || '').toLowerCase();
         // Normalizar todas las variantes de Traductor (Traductor ENG, KO, JAP, etc.) a 'traductor'
@@ -168,11 +171,46 @@ export async function POST(request) {
 
             await db.prepare(`
                 UPDATE asignaciones
-                SET estado = 'Completado', drive_url = ?, completado_en = CURRENT_TIMESTAMP
+                SET estado = ?,
+                    drive_url = ?,
+                    completado_en = ?,
+                    review_status = ?,
+                    review_requested_at = ?,
+                    review_decision_at = NULL,
+                    review_comment = NULL,
+                    review_drive_item_id = ?
                 WHERE id = ?
-            `).run(fileUrl, assignmentId);
+            `).run(
+                requiresReview ? 'En Proceso' : 'Completado',
+                fileUrl,
+                requiresReview ? null : new Date().toISOString(),
+                requiresReview ? 'Pendiente' : 'Aprobado',
+                requiresReview ? new Date().toISOString() : null,
+                uploaded.id,
+                assignmentId
+            );
 
-            return NextResponse.json({ success: true, uploaded: 1, folder_url: fileUrl });
+            if (requiresReview) {
+                await notifyRoles(
+                    db,
+                    ['Administrador', 'Lider de Grupo'],
+                    {
+                        tipo: 'entrega_revision',
+                        titulo: 'Entrega pendiente de revision',
+                        mensaje: `${asignacion.proyecto_titulo || 'Proyecto'} - Cap. ${asignacion.capitulo} (${asignacion.rol})`,
+                        data: { asignacion_id: Number(assignmentId) },
+                    },
+                    { excludeUserIds: [Number(session.usuario_id)], groupId: asignacion.grupo_id ? Number(asignacion.grupo_id) : null }
+                );
+            }
+
+            return NextResponse.json({
+                success: true,
+                uploaded: 1,
+                folder_url: fileUrl,
+                review_status: requiresReview ? 'Pendiente' : 'Aprobado',
+                estado: requiresReview ? 'En Proceso' : 'Completado',
+            });
         }
 
         // Redrawer y Typer suben un zip con imagenes
@@ -223,11 +261,46 @@ export async function POST(request) {
         const folderUrl = `https://drive.google.com/drive/folders/${capFolderId}`;
         await db.prepare(`
             UPDATE asignaciones
-            SET estado = 'Completado', drive_url = ?, completado_en = CURRENT_TIMESTAMP
+            SET estado = ?,
+                drive_url = ?,
+                completado_en = ?,
+                review_status = ?,
+                review_requested_at = ?,
+                review_decision_at = NULL,
+                review_comment = NULL,
+                review_drive_item_id = ?
             WHERE id = ?
-        `).run(folderUrl, assignmentId);
+        `).run(
+            requiresReview ? 'En Proceso' : 'Completado',
+            folderUrl,
+            requiresReview ? null : new Date().toISOString(),
+            requiresReview ? 'Pendiente' : 'Aprobado',
+            requiresReview ? new Date().toISOString() : null,
+            capFolderId,
+            assignmentId
+        );
 
-        return NextResponse.json({ success: true, uploaded: uploadedCount, folder_url: folderUrl });
+        if (requiresReview) {
+            await notifyRoles(
+                db,
+                ['Administrador', 'Lider de Grupo'],
+                {
+                    tipo: 'entrega_revision',
+                    titulo: 'Entrega pendiente de revision',
+                    mensaje: `${asignacion.proyecto_titulo || 'Proyecto'} - Cap. ${asignacion.capitulo} (${asignacion.rol})`,
+                    data: { asignacion_id: Number(assignmentId) },
+                },
+                { excludeUserIds: [Number(session.usuario_id)], groupId: asignacion.grupo_id ? Number(asignacion.grupo_id) : null }
+            );
+        }
+
+        return NextResponse.json({
+            success: true,
+            uploaded: uploadedCount,
+            folder_url: folderUrl,
+            review_status: requiresReview ? 'Pendiente' : 'Aprobado',
+            estado: requiresReview ? 'En Proceso' : 'Completado',
+        });
     } catch (error) {
         return NextResponse.json(
             { error: error instanceof Error ? error.message : 'Error interno' },

@@ -16,6 +16,7 @@ interface Asignacion {
     proyecto_titulo?: string;
     proyecto_imagen?: string;
     capitulo?: number;
+    review_status?: 'Pendiente' | 'Aprobado' | 'Rechazado' | null;
 }
 
 interface ProyectoOption {
@@ -32,6 +33,10 @@ function sortProjectTitlesAlphabetically(projects: ProyectoOption[]) {
     return [...projects].sort((a, b) =>
         String(a?.titulo || '').localeCompare(String(b?.titulo || ''), 'es', { sensitivity: 'base' })
     );
+}
+
+function getDisplayStatus(asignacion: Asignacion) {
+    return asignacion.review_status === 'Pendiente' ? 'En Revision' : asignacion.estado;
 }
 
 export default function AsignacionesPage() {
@@ -113,7 +118,7 @@ export default function AsignacionesPage() {
     }, [proyectos]);
 
     const filtered = asignaciones.filter(a => {
-        if (filterStatus !== 'todos' && a.estado !== filterStatus) return false;
+        if (filterStatus !== 'todos' && getDisplayStatus(a) !== filterStatus) return false;
         if (filterRole !== 'todos' && a.rol !== filterRole) return false;
         if (filterProject !== 'todos' && String(a.proyecto_titulo || '').trim() !== filterProject) return false;
         return true;
@@ -123,6 +128,7 @@ export default function AsignacionesPage() {
         switch (status) {
             case 'Pendiente': return 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20';
             case 'En Proceso': return 'text-blue-500 bg-blue-500/10 border-blue-500/20';
+            case 'En Revision': return 'text-violet-300 bg-violet-500/10 border-violet-500/20';
             case 'Completado': return 'text-success bg-success/10 border-success/20';
             default: return 'text-gray-400 bg-gray-800 border-gray-700';
         }
@@ -274,6 +280,7 @@ export default function AsignacionesPage() {
                             <option value="todos">Todos los Estados</option>
                             <option value="Pendiente">Pendientes</option>
                             <option value="En Proceso">En Proceso</option>
+                            <option value="En Revision">En Revision</option>
                             <option value="Completado">Completados</option>
                         </select>
                         <select
@@ -346,16 +353,30 @@ export default function AsignacionesPage() {
                         ) : filtered.length > 0 ? (
                             filtered.map((asig, index) => (
                                 <Link href={`/asignaciones/${asig.id}`} key={asig.id}>
+                                    {(() => {
+                                        const displayStatus = getDisplayStatus(asig);
+                                        const accentClass = displayStatus === 'Completado'
+                                            ? 'bg-emerald-500'
+                                            : displayStatus === 'En Revision'
+                                                ? 'bg-violet-500'
+                                                : displayStatus === 'En Proceso'
+                                                    ? 'bg-blue-500'
+                                                    : 'bg-yellow-500';
+                                        const iconName = displayStatus === 'Completado'
+                                            ? 'check'
+                                            : displayStatus === 'En Revision'
+                                                ? 'fact_check'
+                                                : displayStatus === 'En Proceso'
+                                                    ? 'sync'
+                                                    : 'pending';
+                                        return (
                                     <div
                                         className="bg-gradient-to-br from-surface-dark to-surface-darker rounded-xl p-0 shadow-card hover:shadow-card-hover border border-gray-800 hover:border-primary/50 transition-all duration-300 cursor-pointer group hover:transform hover:translate-x-2 animate-slide-up"
                                         style={{ animationDelay: `${index * 50}ms` }}
                                     >
                                         <div className="flex flex-row relative overflow-hidden h-full">
                                             {/* Accent Bar */}
-                                            <div className={`w-1.5 flex-shrink-0 ${asig.estado === 'Completado' ? 'bg-emerald-500' :
-                                                asig.estado === 'En Proceso' ? 'bg-blue-500' :
-                                                    'bg-yellow-500'
-                                                }`}></div>
+                                            <div className={`w-1.5 flex-shrink-0 ${accentClass}`}></div>
 
                                             <div className="flex-1 p-3 sm:p-4 flex gap-3 sm:gap-5 items-start">
                                                 {/* Image */}
@@ -388,11 +409,9 @@ export default function AsignacionesPage() {
                                                                 )}
                                                             </div>
                                                             {/* Status Mobile - Icon Only */}
-                                                            <div className={`sm:hidden shrink-0 rounded-full p-1 ${asig.estado === 'Completado' ? 'text-emerald-500 bg-emerald-500/10' :
-                                                                asig.estado === 'En Proceso' ? 'text-blue-500 bg-blue-500/10' : 'text-yellow-500 bg-yellow-500/10'
-                                                                }`}>
+                                                            <div className={`sm:hidden shrink-0 rounded-full p-1 ${getStatusColor(displayStatus)}`}>
                                                                 <span className="material-icons-round text-sm block">
-                                                                    {asig.estado === 'Completado' ? 'check' : asig.estado === 'En Proceso' ? 'sync' : 'pending'}
+                                                                    {iconName}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -416,12 +435,13 @@ export default function AsignacionesPage() {
                                                         </span>
 
                                                         {/* Desktop Status Badge */}
-                                                        <span className={`hidden sm:inline-flex px-2.5 py-1 rounded text-[10px] font-bold uppercase border items-center gap-1.5 ${getStatusColor(asig.estado)}`}>
+                                                        <span className={`hidden sm:inline-flex px-2.5 py-1 rounded text-[10px] font-bold uppercase border items-center gap-1.5 ${getStatusColor(displayStatus)}`}>
                                                             <span className="material-icons-round text-xs">
-                                                                {asig.estado === 'Completado' ? 'check_circle' :
-                                                                    asig.estado === 'En Proceso' ? 'sync' : 'pending'}
+                                                                {displayStatus === 'Completado' ? 'check_circle' :
+                                                                    displayStatus === 'En Revision' ? 'fact_check' :
+                                                                    displayStatus === 'En Proceso' ? 'sync' : 'pending'}
                                                             </span>
-                                                            {asig.estado}
+                                                            {displayStatus}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -433,6 +453,8 @@ export default function AsignacionesPage() {
                                             </div>
                                         </div>
                                     </div>
+                                        );
+                                    })()}
                                 </Link>
                             ))
                         ) : (

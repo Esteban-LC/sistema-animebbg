@@ -3,8 +3,6 @@ import { NextResponse } from 'next/server';
 
 import { cookies } from 'next/headers';
 
-const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
-
 function normalizeRoles(rawRoles) {
     const list = Array.isArray(rawRoles) ? rawRoles : [];
     return list.map((role) => role === 'Traductor KO/JAP' ? 'Traductor KO' : role);
@@ -15,6 +13,34 @@ function normalizeTag(rawTag) {
         .trim()
         .toLowerCase()
         .replace(/\s+/g, '');
+}
+
+function parseRoles(rawRoles) {
+    try {
+        return normalizeRoles(rawRoles ? JSON.parse(rawRoles) : []);
+    } catch {
+        return [];
+    }
+}
+
+function sanitizeUserForResponse(user, { includeAdminFields = false } = {}) {
+    const safeUser = {
+        id: Number(user?.id || 0),
+        nombre: String(user?.nombre || ''),
+        tag: String(user?.tag || ''),
+        nombre_creditos: String(user?.nombre_creditos || user?.nombre || ''),
+        grupo_id: user?.grupo_id ? Number(user.grupo_id) : null,
+        grupo_nombre: String(user?.grupo_nombre || ''),
+        roles: parseRoles(user?.roles),
+    };
+
+    if (includeAdminFields) {
+        safeUser.activo = Number(user?.activo ?? 1);
+        safeUser.creado_en = String(user?.creado_en || '');
+        safeUser.rango = Number(user?.rango ?? 1);
+    }
+
+    return safeUser;
 }
 
 async function hasUsuariosColumn(db, columnName) {
@@ -72,13 +98,11 @@ export async function GET() {
         await ensureUsuariosCreditosColumns(db);
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
-        console.log('DEBUG USERS API: Token received:', token ? token.substring(0, 10) + '...' : 'NONE');
 
         let groupId = null;
         let isAdmin = false;
 
         if (token) {
-            console.log('DEBUG USERS API: Validating token...');
             const session = await db.prepare(`
                 SELECT u.roles, u.grupo_id 
                 FROM sessions s
@@ -87,20 +111,15 @@ export async function GET() {
             `).get(token);
 
             if (session) {
-                console.log('DEBUG USERS API: Session Found', session);
                 try {
                     const roles = JSON.parse(session.roles || '[]');
-                    console.log('DEBUG USERS API: Parsed Roles', roles);
 
                     isAdmin = roles.includes('Administrador');
                     groupId = session.grupo_id;
-
-                    console.log(`DEBUG USERS API: isAdmin=${isAdmin}, groupId=${groupId}`);
-                } catch (e) {
-                    console.error('DEBUG USERS API: Role parse error', e);
+                } catch {
+                    isAdmin = false;
+                    groupId = null;
                 }
-            } else {
-                console.log('DEBUG USERS API: No Session found for token', token);
             }
         }
 
@@ -125,10 +144,9 @@ export async function GET() {
 
         const usuarios = await db.prepare(query).all(...params);
 
-        const usuariosWithRoles = usuarios.map(u => ({
-            ...u,
-            roles: normalizeRoles(u.roles ? JSON.parse(u.roles) : [])
-        }));
+        const usuariosWithRoles = usuarios.map((u) =>
+            sanitizeUserForResponse(u, { includeAdminFields: isAdmin })
+        );
 
         return NextResponse.json(usuariosWithRoles);
     } catch (error) {

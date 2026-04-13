@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
@@ -6,6 +7,7 @@ const busboy = require('busboy');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 const UPLOAD_TMP_DIR = path.join(os.tmpdir(), 'animebbg-uploads');
 if (!fs.existsSync(UPLOAD_TMP_DIR)) fs.mkdirSync(UPLOAD_TMP_DIR, { recursive: true });
@@ -22,6 +24,79 @@ const { EventEmitter } = require('events');
 if (!global.__animebbgRealtimeEmitter) {
   global.__animebbgRealtimeEmitter = new EventEmitter();
   global.__animebbgRealtimeEmitter.setMaxListeners(200);
+}
+
+let dbModulePromise = null;
+
+function getCookieValue(header, name) {
+  const cookieHeader = String(header || '');
+  if (!cookieHeader) return '';
+
+  const parts = cookieHeader.split(';');
+  for (const part of parts) {
+    const [rawKey, ...rest] = part.split('=');
+    if (String(rawKey || '').trim() !== name) continue;
+    return decodeURIComponent(rest.join('=').trim());
+  }
+  return '';
+}
+
+function getAllowedSocketOrigins(hostHeader) {
+  const host = String(hostHeader || '').trim();
+  const configured = String(process.env.SOCKET_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const appUrl = String(process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || '').trim();
+
+  const defaults = [];
+  if (host) {
+    defaults.push(`http://${host}`);
+    defaults.push(`https://${host}`);
+  }
+  if (appUrl) {
+    defaults.push(appUrl);
+  }
+  defaults.push(
+    'https://www.sistema-gestorbbg.linkpc.net',
+    'https://sistema-gestorbbg.linkpc.net'
+  );
+  defaults.push('http://localhost:3000', 'https://localhost:3000');
+
+  return new Set([...defaults, ...configured]);
+}
+
+async function getDbModule() {
+  if (!dbModulePromise) {
+    dbModulePromise = import('./src/lib/db.js');
+  }
+  return dbModulePromise;
+}
+
+async function validateSocketHandshake(req) {
+  const origin = String(req.headers.origin || '').trim();
+  const host = String(req.headers.host || '').trim();
+  const allowedOrigins = getAllowedSocketOrigins(host);
+
+  if (origin && !allowedOrigins.has(origin)) {
+    return false;
+  }
+
+  const token = getCookieValue(req.headers.cookie, 'auth_token');
+  if (!token || token.length < 32) {
+    return false;
+  }
+
+  const { getDb } = await getDbModule();
+  const db = getDb();
+  const session = await db.prepare(`
+    SELECT s.usuario_id, u.activo
+    FROM sessions s
+    JOIN usuarios u ON u.id = s.usuario_id
+    WHERE s.token = ? AND s.expires_at > datetime('now')
+  `).get(token);
+
+  return Boolean(session?.usuario_id) && Number(session?.activo ?? 1) === 1;
 }
 
 app.prepare().then(() => {
@@ -101,22 +176,34 @@ app.prepare().then(() => {
 
   const io = new Server(httpServer, {
     cors: {
-      origin: '*', // Adjust for production if needed
+      origin: (origin, callback) => {
+        const allowedOrigins = getAllowedSocketOrigins(process.env.PUBLIC_HOST || '');
+        if (!origin || allowedOrigins.has(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error('Origin no permitido'));
+      },
       methods: ['GET', 'POST'],
+    },
+    allowRequest: (req, callback) => {
+      validateSocketHandshake(req)
+        .then((isValid) => callback(null, isValid))
+        .catch((error) => {
+          console.error('[Socket] Handshake rejected:', error?.message || error);
+          callback('Unauthorized', false);
+        });
     },
   });
 
     io.on('connection', (socket) => {
-      // console.log(`Socket connected: ${socket.id}`);
-  
       socket.on('content-changed', (data) => {
-        // Re-broadcast early to all *other* connected clients
-        socket.broadcast.emit('content-changed', data || {});
+        const payload = data && typeof data === 'object' ? data : {};
+        const eventNonce = crypto.randomUUID();
+        socket.broadcast.emit('content-changed', { ...payload, _eventNonce: eventNonce });
       });
-  
-      socket.on('disconnect', () => {
-        // console.log(`Socket disconnected: ${socket.id}`);
-      });
+
+      socket.on('disconnect', () => {});
     });
 
     // Bridge internal Events to Socket.io

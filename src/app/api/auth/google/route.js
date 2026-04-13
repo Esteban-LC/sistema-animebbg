@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getDb } from '@/lib/db';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,15 @@ export async function GET() {
 
     const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
     const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT_URI;
+    const oauthState = crypto.randomBytes(24).toString('hex');
+
+    cookieStore.set('google_oauth_state', oauthState, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 10 * 60,
+        path: '/',
+    });
 
     const params = new URLSearchParams({
         client_id: clientId,
@@ -32,6 +42,7 @@ export async function GET() {
         scope: 'https://www.googleapis.com/auth/drive',
         access_type: 'offline',
         prompt: 'consent',
+        state: oauthState,
     });
 
     return NextResponse.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);

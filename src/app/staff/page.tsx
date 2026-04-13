@@ -19,6 +19,7 @@ interface Asignacion {
     proyecto_imagen?: string;
     capitulo?: number;
     drive_url?: string | null;
+    review_status?: 'Pendiente' | 'Aprobado' | 'Rechazado' | null;
 }
 
 interface Proyecto {
@@ -94,6 +95,10 @@ function normalizeUrlValue(value: unknown) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function getDisplayStatus(asignacion: Asignacion) {
+    return asignacion.review_status === 'Pendiente' ? 'En Revision' : asignacion.estado;
+}
+
 
 export default function StaffPage() {
     const { user } = useUser();
@@ -124,6 +129,7 @@ export default function StaffPage() {
     const [solicitudRol, setSolicitudRol] = useState('');
     const [solicitudEnviada, setSolicitudEnviada] = useState(false);
     const [solicitudPendiente, setSolicitudPendiente] = useState(false);
+    const [solicitudBloqueadaPorAsignacionActiva, setSolicitudBloqueadaPorAsignacionActiva] = useState(false);
     const [solicitudLoading, setSolicitudLoading] = useState(false);
 
     const isNuevo = !user?.isAdmin && !(user?.roles || []).includes('Lider de Grupo') && (user?.rango ?? 1) < 2;
@@ -152,6 +158,17 @@ export default function StaffPage() {
         Boolean(selfRoles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo');
     const canUseStaffTasks = roleOptions.length > 0;
     const isLeaderOnly = isLeaderRole && !canUseStaffTasks;
+
+    const fetchSolicitudStatus = async () => {
+        try {
+            const res = await fetch('/api/solicitudes-asignacion', { method: 'GET' });
+            const data = await res.json();
+            setSolicitudPendiente(Boolean(data?.pendiente));
+            setSolicitudBloqueadaPorAsignacionActiva(Boolean(data?.active_assignment));
+        } catch {
+            // silent
+        }
+    };
 
     const fetchNextChapterOption = async (proyectoId: string, rol: string) => {
         if (!proyectoId || !rol) {
@@ -235,10 +252,7 @@ export default function StaffPage() {
         }
         if (isNuevo) {
             tasks.push(
-                fetch('/api/solicitudes-asignacion', { method: 'GET' })
-                    .then(r => r.json())
-                    .then(d => { if (d?.pendiente) setSolicitudPendiente(true); })
-                    .catch(() => {})
+                fetchSolicitudStatus()
             );
         }
         Promise.all(tasks).finally(() => setLoading(false));
@@ -249,17 +263,19 @@ export default function StaffPage() {
         const id = window.setInterval(() => {
             fetchAsignaciones();
             fetchPeriodStats();
+            if (isNuevo) fetchSolicitudStatus();
         }, 8000);
         const onRealtimeUpdate = () => {
             fetchAsignaciones();
             fetchPeriodStats();
+            if (isNuevo) fetchSolicitudStatus();
         };
         window.addEventListener('realtime:update', onRealtimeUpdate);
         return () => {
             window.clearInterval(id);
             window.removeEventListener('realtime:update', onRealtimeUpdate);
         };
-    }, [user?.id]);
+    }, [user?.id, isNuevo]);
 
     useEffect(() => {
         if (isLeaderOnly) return;
@@ -429,6 +445,7 @@ export default function StaffPage() {
             if (!res.ok) throw new Error(data.error || 'No se pudo enviar la solicitud');
             setSolicitudEnviada(true);
             setSolicitudPendiente(true);
+            setSolicitudBloqueadaPorAsignacionActiva(false);
             showToast('Solicitud enviada. Un admin/lider te asignara pronto.', 'success');
         } catch (error: unknown) {
             showToast(getErrorMessage(error, 'Error'), 'error');
@@ -438,7 +455,7 @@ export default function StaffPage() {
     };
 
     const filtered = asignaciones.filter(a => {
-        if (filterStatus !== 'todos' && a.estado !== filterStatus) return false;
+        if (filterStatus !== 'todos' && getDisplayStatus(a) !== filterStatus) return false;
         return true;
     });
     const hasActiveSelfAssignment = useMemo(
@@ -514,7 +531,7 @@ export default function StaffPage() {
             await fetchAsignaciones();
             await fetchPeriodStats();
             closeCompletionFlow();
-            showToast('Archivo subido y tarea completada correctamente', 'success');
+            showToast('Entrega enviada a revision correctamente', 'success');
         } catch (error: unknown) {
             showToast(getErrorMessage(error, 'Error al subir el archivo'), 'error');
         } finally {
@@ -544,7 +561,15 @@ export default function StaffPage() {
                         {/* ── RANGO NUEVO: formulario de solicitud ── */}
                         {isNuevo ? (
                             <div className="space-y-3">
-                                {solicitudPendiente || solicitudEnviada ? (
+                                {hasActiveSelfAssignment || solicitudBloqueadaPorAsignacionActiva ? (
+                                    <div className="p-4 rounded-xl border border-yellow-500/40 bg-yellow-500/10 text-center">
+                                        <span className="material-icons-round text-yellow-400 text-2xl mb-1 block">assignment_late</span>
+                                        <p className="text-sm text-yellow-200 font-semibold">Ya tienes una asignacion activa</p>
+                                        <p className="text-xs text-yellow-300/70 mt-1">
+                                            Debes completar o liberar tu tarea actual antes de solicitar otra.
+                                        </p>
+                                    </div>
+                                ) : solicitudPendiente || solicitudEnviada ? (
                                     <div className="p-4 rounded-xl border border-yellow-500/40 bg-yellow-500/10 text-center">
                                         <span className="material-icons-round text-yellow-400 text-2xl mb-1 block">hourglass_top</span>
                                         <p className="text-sm text-yellow-200 font-semibold">Solicitud enviada</p>
@@ -791,6 +816,7 @@ export default function StaffPage() {
                             <option value="todos">Todos los Estados</option>
                             <option value="Pendiente">Pendientes</option>
                             <option value="En Proceso">En Proceso</option>
+                            <option value="En Revision">En Revision</option>
                             <option value="Completado">Completados</option>
                         </select>
                     </div>
@@ -802,15 +828,31 @@ export default function StaffPage() {
                             ))
                         ) : filtered.length > 0 ? (
                             filtered.map(asig => (
+                                (() => {
+                                    const displayStatus = getDisplayStatus(asig);
+                                    const isPendingReview = displayStatus === 'En Revision';
+                                    const accentClass = displayStatus === 'Completado'
+                                        ? 'bg-emerald-500'
+                                        : displayStatus === 'En Revision'
+                                            ? 'bg-violet-500'
+                                            : displayStatus === 'En Proceso'
+                                                ? 'bg-blue-500'
+                                                : 'bg-yellow-500';
+                                    const badgeClass = displayStatus === 'Completado'
+                                        ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
+                                        : displayStatus === 'En Revision'
+                                            ? 'text-violet-200 border-violet-500/30 bg-violet-500/10'
+                                            : displayStatus === 'En Proceso'
+                                                ? 'text-blue-300 border-blue-500/30 bg-blue-500/10'
+                                                : 'text-gray-300 border-gray-700 bg-background-dark';
+                                    return (
                                 <div
                                     key={asig.id}
                                     onClick={() => router.push(`/asignaciones/${asig.id}?staff=1`)}
                                     className="bg-surface-dark rounded-xl shadow-lg border border-gray-800 overflow-hidden cursor-pointer hover:border-primary/50 transition-colors"
                                 >
                                     <div className="flex relative overflow-hidden">
-                                        <div className={`w-1.5 flex-shrink-0 ${asig.estado === 'Completado' ? 'bg-emerald-500' :
-                                            asig.estado === 'En Proceso' ? 'bg-blue-500' : 'bg-yellow-500'
-                                            }`}></div>
+                                        <div className={`w-1.5 flex-shrink-0 ${accentClass}`}></div>
                                         <div className="p-4 w-full flex gap-3 items-start">
                                             <div className="shrink-0 w-16 h-24 sm:w-20 sm:h-28 rounded-lg bg-gray-800 overflow-hidden shadow-md">
                                                 {asig.proyecto_imagen ? (
@@ -836,10 +878,15 @@ export default function StaffPage() {
                                                         <span className="material-icons-round text-[12px]">{getRoleIcon(asig.rol)}</span>
                                                         {asig.rol}
                                                     </span>
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border text-gray-300 border-gray-700 bg-background-dark">
-                                                        {asig.estado}
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${badgeClass}`}>
+                                                        {displayStatus}
                                                     </span>
                                                 </div>
+                                                {isPendingReview && (
+                                                    <p className="mt-2 text-[11px] text-violet-200">
+                                                        Tu entrega ya se subio y esta esperando revision de lider/admin.
+                                                    </p>
+                                                )}
 
                                                 <div className="flex gap-2 mt-3">
                                                     {asig.estado === 'Pendiente' && (
@@ -854,7 +901,7 @@ export default function StaffPage() {
                                                             Iniciar
                                                         </button>
                                                     )}
-                                                    {asig.estado === 'En Proceso' && (
+                                                    {asig.estado === 'En Proceso' && !isPendingReview && (
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
@@ -863,7 +910,18 @@ export default function StaffPage() {
                                                             disabled={deliveryUploading}
                                                             className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold"
                                                         >
-                                                            Entregar
+                                                            Enviar a revision
+                                                        </button>
+                                                    )}
+                                                    {isPendingReview && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                router.push(`/asignaciones/${asig.id}?staff=1`);
+                                                            }}
+                                                            className="px-4 py-2 bg-violet-600/15 border border-violet-500/30 text-violet-200 rounded-lg text-sm font-bold"
+                                                        >
+                                                            En revision
                                                         </button>
                                                     )}
                                                     <button
@@ -880,6 +938,8 @@ export default function StaffPage() {
                                         </div>
                                     </div>
                                 </div>
+                                    );
+                                })()
                             ))
                         ) : (
                             <div className="bg-surface-dark rounded-xl border border-gray-800 border-dashed p-12 text-center">
@@ -902,7 +962,7 @@ export default function StaffPage() {
                     <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-surface-dark shadow-2xl overflow-hidden">
                         <div className="p-6 border-b border-gray-800">
                             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-400">Entrega</p>
-                            <h3 className="text-xl font-display font-bold text-white mt-1">Entregar</h3>
+                            <h3 className="text-xl font-display font-bold text-white mt-1">Enviar a revision</h3>
                             <p className="text-sm text-gray-300 mt-2">
                                 {completionTarget.proyecto_titulo || completionTarget.descripcion}
                                 {completionTarget.capitulo ? ` - Capitulo ${completionTarget.capitulo}` : ''}
@@ -928,7 +988,7 @@ export default function StaffPage() {
                                 </p>
                             )}
                             <p className="text-[11px] text-muted-dark leading-relaxed">
-                                Al subir, la tarea dejara de mostrarse en tus tareas activas.
+                                Al subir, la entrega quedara en revision hasta que lider o admin la apruebe.
                             </p>
                         </div>
                         <div className="p-6 pt-0 flex gap-3">
@@ -944,7 +1004,7 @@ export default function StaffPage() {
                                 disabled={!deliveryFile || deliveryUploading}
                                 className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50"
                             >
-                                {deliveryUploading ? 'Subiendo...' : 'Subir y completar'}
+                                {deliveryUploading ? 'Subiendo...' : 'Subir y enviar'}
                             </button>
                         </div>
                     </div>

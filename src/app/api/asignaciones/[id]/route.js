@@ -1,12 +1,12 @@
-import { ensureAssignmentGroupSnapshotSchema, getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, ensureAssignmentReviewSchema, getDb } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createNotification, notifyRoles } from '@/lib/notifications';
 import { getProjectCatalogEntries } from '@/lib/project-catalog';
 import { publishAssignmentEvent, publishProjectEvent } from '@/lib/realtime';
 import { refreshRankingRealtime } from '@/lib/ranking';
+import { deleteDriveItemOAuth } from '@/lib/google-oauth';
 
-const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
 const ACTIVE_ASSIGNMENT_STATES = ['Pendiente', 'En Proceso'];
 
 async function hasAsignacionesColumn(db, columnName) {
@@ -27,6 +27,21 @@ async function ensureTraductorTipoColumn(db) {
         // verify below
     }
     return hasAsignacionesColumn(db, 'traductor_tipo');
+}
+
+async function hasAssignmentReviewColumns(db) {
+    try {
+        const tableInfo = await db.prepare(`PRAGMA table_info(asignaciones)`).all();
+        if (!Array.isArray(tableInfo)) return false;
+        const names = new Set(tableInfo.map((col) => col?.name));
+        return names.has('review_status')
+            && names.has('review_comment')
+            && names.has('review_requested_at')
+            && names.has('review_decision_at')
+            && names.has('review_drive_item_id');
+    } catch {
+        return false;
+    }
 }
 
 function normalizeUrlValue(value) {
@@ -159,10 +174,12 @@ async function getAuthContext(db) {
 }
 
 async function getAsignacionDetalle(db, id, hasTraductorTipoColumn) {
+    const hasReviewColumns = await hasAssignmentReviewColumns(db);
     const asignacion = await db.prepare(`
       SELECT
         a.id, a.usuario_id, a.rol, ${hasTraductorTipoColumn ? 'a.traductor_tipo' : 'NULL as traductor_tipo'}, a.descripcion, a.estado,
         a.asignado_en, a.completado_en, a.informe, a.drive_url, a.proyecto_id, a.capitulo, a.grupo_id_snapshot,
+        ${hasReviewColumns ? 'a.review_status, a.review_comment, a.review_requested_at, a.review_decision_at, a.review_drive_item_id,' : "NULL as review_status, NULL as review_comment, NULL as review_requested_at, NULL as review_decision_at, NULL as review_drive_item_id,"}
         u.nombre as usuario_nombre,
         u.discord_username,
         p.titulo as proyecto_titulo,
@@ -253,6 +270,7 @@ export async function GET(request, context) {
         if (!id) return NextResponse.json({ error: 'ID de asignacion invalido' }, { status: 400 });
         const db = getDb();
         await ensureAssignmentGroupSnapshotSchema(db);
+        await ensureAssignmentReviewSchema(db);
         const traductorTipoColumnExists = await ensureTraductorTipoColumn(db);
         const auth = await getAuthContext(db);
         if (!auth) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -289,10 +307,11 @@ export async function PATCH(request, context) {
         const id = await resolveAsignacionId(context);
         if (!id) return NextResponse.json({ error: 'ID de asignacion invalido' }, { status: 400 });
         const body = await request.json();
-        const { estado, informe, drive_url, usuario_id, capitulo, reset_tiro, traductor_tipo } = body;
+        const { estado, informe, drive_url, usuario_id, capitulo, reset_tiro, traductor_tipo, review_action, review_comment } = body;
 
         const db = getDb();
         await ensureAssignmentGroupSnapshotSchema(db);
+        await ensureAssignmentReviewSchema(db);
         const traductorTipoColumnExists = await ensureTraductorTipoColumn(db);
         const auth = await getAuthContext(db);
         if (!auth) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -302,6 +321,7 @@ export async function PATCH(request, context) {
 
         const asignacionOriginal = await db.prepare(`
             SELECT a.usuario_id, a.proyecto_id, a.rol, a.capitulo, a.estado, a.drive_url, a.descripcion, p.titulo as proyecto_titulo
+                   , a.review_status, a.review_drive_item_id
             FROM asignaciones a
             LEFT JOIN proyectos p ON p.id = a.proyecto_id
             WHERE a.id = ?
@@ -355,6 +375,65 @@ export async function PATCH(request, context) {
             await db.prepare('UPDATE asignaciones SET drive_url = ? WHERE id = ?').run(drive_url, id);
         }
 
+        if (review_action !== undefined) {
+            if (!auth.isAdmin && !canTouchAsLeader) {
+                return NextResponse.json({ error: 'Solo administradores o lideres pueden revisar entregas' }, { status: 403 });
+            }
+            if (String(asignacionOriginal.review_status || '') !== 'Pendiente') {
+                return NextResponse.json({ error: 'Esta asignacion no tiene una entrega pendiente de revision' }, { status: 400 });
+            }
+
+            const normalizedReviewComment = String(review_comment || '').trim();
+            if (review_action === 'approve') {
+                const finalDriveUrl = normalizeUrlValue(asignacionOriginal.drive_url);
+                if (!isValidDeliveryUrlForRole(asignacionOriginal.rol, finalDriveUrl)) {
+                    return NextResponse.json({ error: getDeliveryUrlError(asignacionOriginal.rol) }, { status: 400 });
+                }
+
+                await db.prepare(`
+                    UPDATE asignaciones
+                    SET estado = 'Completado',
+                        completado_en = CURRENT_TIMESTAMP,
+                        review_status = 'Aprobado',
+                        review_comment = ?,
+                        review_decision_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `).run(normalizedReviewComment || null, id);
+
+                await recalculateProjectProgress(db, asignacionOriginal?.proyecto_id);
+            } else if (review_action === 'reject') {
+                if (!normalizedReviewComment) {
+                    return NextResponse.json({ error: 'Agrega un comentario para explicar el rechazo' }, { status: 400 });
+                }
+
+                const reviewDriveItemId = String(asignacionOriginal.review_drive_item_id || '').trim();
+                if (reviewDriveItemId) {
+                    try {
+                        await deleteDriveItemOAuth(reviewDriveItemId);
+                    } catch (error) {
+                        return NextResponse.json({
+                            error: error instanceof Error ? error.message : 'No se pudo eliminar la entrega de Drive'
+                        }, { status: 500 });
+                    }
+                }
+
+                await db.prepare(`
+                    UPDATE asignaciones
+                    SET estado = 'En Proceso',
+                        drive_url = NULL,
+                        completado_en = NULL,
+                        review_status = 'Rechazado',
+                        review_comment = ?,
+                        review_requested_at = NULL,
+                        review_decision_at = CURRENT_TIMESTAMP,
+                        review_drive_item_id = NULL
+                    WHERE id = ?
+                `).run(normalizedReviewComment, id);
+            } else {
+                return NextResponse.json({ error: 'Accion de revision no valida' }, { status: 400 });
+            }
+        }
+
         if (capitulo !== undefined) {
             if (!asignacionOriginal.proyecto_id) {
                 return NextResponse.json({ error: 'Solo se puede editar capitulo en asignaciones de proyecto' }, { status: 400 });
@@ -394,7 +473,12 @@ export async function PATCH(request, context) {
                     capitulo = NULL,
                     completado_en = NULL,
                     informe = NULL,
-                    grupo_id_snapshot = ?
+                    grupo_id_snapshot = ?,
+                    review_status = NULL,
+                    review_comment = NULL,
+                    review_requested_at = NULL,
+                    review_decision_at = NULL,
+                    review_drive_item_id = NULL
                 WHERE id = ?
             `).run(await getUserGroupId(db, Number(usuario_id ?? asignacionOriginal.usuario_id)), id);
 
@@ -410,15 +494,52 @@ export async function PATCH(request, context) {
                     return NextResponse.json({ error: getDeliveryUrlError(asignacionOriginal.rol) }, { status: 400 });
                 }
 
+                const needsReview = isOwner && !auth.isAdmin && !auth.isLeader;
                 await db.prepare('UPDATE asignaciones SET drive_url = ? WHERE id = ?').run(finalDriveUrl, id);
-                const params = informe ? [estado, informe, id] : [estado, id];
-                const sql = informe
-                    ? 'UPDATE asignaciones SET estado = ?, completado_en = CURRENT_TIMESTAMP, informe = ? WHERE id = ?'
-                    : 'UPDATE asignaciones SET estado = ?, completado_en = CURRENT_TIMESTAMP WHERE id = ?';
 
-                await db.prepare(sql).run(...params);
+                if (needsReview) {
+                    const params = informe ? [informe, id] : [id];
+                    const sql = informe
+                        ? `UPDATE asignaciones
+                           SET estado = 'En Proceso',
+                               informe = ?,
+                               completado_en = NULL,
+                               review_status = 'Pendiente',
+                               review_requested_at = CURRENT_TIMESTAMP,
+                               review_decision_at = NULL,
+                               review_comment = NULL
+                           WHERE id = ?`
+                        : `UPDATE asignaciones
+                           SET estado = 'En Proceso',
+                               completado_en = NULL,
+                               review_status = 'Pendiente',
+                               review_requested_at = CURRENT_TIMESTAMP,
+                               review_decision_at = NULL,
+                               review_comment = NULL
+                           WHERE id = ?`;
+                    await db.prepare(sql).run(...params);
+                } else {
+                    const params = informe ? [estado, informe, id] : [estado, id];
+                    const sql = informe
+                        ? `UPDATE asignaciones
+                           SET estado = ?, completado_en = CURRENT_TIMESTAMP, informe = ?,
+                               review_status = 'Aprobado', review_decision_at = CURRENT_TIMESTAMP
+                           WHERE id = ?`
+                        : `UPDATE asignaciones
+                           SET estado = ?, completado_en = CURRENT_TIMESTAMP,
+                               review_status = 'Aprobado', review_decision_at = CURRENT_TIMESTAMP
+                           WHERE id = ?`;
+
+                    await db.prepare(sql).run(...params);
+                }
             } else {
-                await db.prepare('UPDATE asignaciones SET estado = ? WHERE id = ?').run(estado, id);
+                await db.prepare(`
+                    UPDATE asignaciones
+                    SET estado = ?,
+                        review_status = CASE WHEN ? = 'Pendiente' THEN NULL ELSE review_status END,
+                        review_requested_at = CASE WHEN ? = 'Pendiente' THEN NULL ELSE review_requested_at END
+                    WHERE id = ?
+                `).run(estado, estado, estado, id);
             }
 
             await recalculateProjectProgress(db, asignacionOriginal?.proyecto_id);
@@ -477,6 +598,27 @@ export async function PATCH(request, context) {
             });
         }
 
+        if (review_action === 'approve') {
+            await createNotification(db, {
+                usuarioId: Number(asignacion?.usuario_id),
+                tipo: 'revision_aprobada',
+                titulo: 'Entrega aprobada',
+                mensaje: `${actorName} aprobo tu entrega en ${asignacion?.proyecto_titulo || 'proyecto'}${asignacion?.capitulo ? ` (Cap. ${asignacion.capitulo})` : ''}`,
+                data: { asignacion_id: Number(id) },
+            });
+        }
+
+        if (review_action === 'reject') {
+            const reasonText = String(review_comment || '').trim();
+            await createNotification(db, {
+                usuarioId: Number(asignacion?.usuario_id),
+                tipo: 'revision_rechazada',
+                titulo: 'Entrega rechazada',
+                mensaje: `${actorName} rechazo tu entrega en ${asignacion?.proyecto_titulo || 'proyecto'}${asignacion?.capitulo ? ` (Cap. ${asignacion.capitulo})` : ''}. ${reasonText}`,
+                data: { asignacion_id: Number(id) },
+            });
+        }
+
         if (estado !== undefined && estado !== prevEstado) {
             const currentGroupId = await getAssignmentScopeGroupId(db, id);
             await notifyRoles(
@@ -486,6 +628,21 @@ export async function PATCH(request, context) {
                     tipo: 'estado_tarea',
                     titulo: `Estado: ${estado}`,
                     mensaje: `${asignacion?.usuario_nombre || 'Usuario'} cambio a "${estado}" en ${asignacion?.proyecto_titulo || 'tarea'}${asignacion?.capitulo ? ` (Cap. ${asignacion.capitulo})` : ''}`,
+                    data: { asignacion_id: Number(id) },
+                },
+                { excludeUserIds: [auth.userId], groupId: currentGroupId }
+            );
+        }
+
+        if (String(asignacion?.review_status || '') === 'Pendiente' && (review_action === undefined && estado === 'Completado')) {
+            const currentGroupId = await getAssignmentScopeGroupId(db, id);
+            await notifyRoles(
+                db,
+                ['Administrador', 'Lider de Grupo'],
+                {
+                    tipo: 'entrega_revision',
+                    titulo: 'Entrega pendiente de revision',
+                    mensaje: `${asignacion?.usuario_nombre || 'Usuario'} envio entrega para revision en ${asignacion?.proyecto_titulo || 'tarea'}${asignacion?.capitulo ? ` (Cap. ${asignacion.capitulo})` : ''}`,
                     data: { asignacion_id: Number(id) },
                 },
                 { excludeUserIds: [auth.userId], groupId: currentGroupId }

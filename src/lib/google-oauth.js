@@ -131,3 +131,19 @@ export async function uploadFileToDriveOAuth(folderId, filename, mimeType, data)
     }
     return result;
 }
+
+export async function deleteDriveItemOAuth(itemId) {
+    const normalizedId = String(itemId || '').trim();
+    if (!normalizedId) return;
+
+    const token = await getOAuthAccessToken();
+    const res = await fetch(`${GOOGLE_DRIVE_FILES_URL}/${encodeURIComponent(normalizedId)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok && res.status !== 404) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(`No se pudo eliminar archivo/carpeta de Drive: ${data?.error?.message || res.status}`);
+    }
+}

@@ -35,6 +35,7 @@ export async function GET(request) {
     try {
         const { searchParams } = new URL(request.url);
         const assignmentId = Number(searchParams.get('id'));
+        const source = searchParams.get('source') === 'delivery' ? 'delivery' : 'raw';
         // variant ENG = raw_url (english), CORE = raw_eng_url (KO/JAP)
         const variant = searchParams.get('variant') === 'ENG' ? 'ENG' : 'CORE';
 
@@ -61,7 +62,7 @@ export async function GET(request) {
         const isLeader = roles.includes('Lider de Grupo');
 
         const asignacion = await db.prepare(`
-            SELECT a.usuario_id, a.proyecto_id, a.capitulo, a.rol,
+            SELECT a.usuario_id, a.proyecto_id, a.capitulo, a.rol, a.drive_url,
                    COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) AS grupo_id
             FROM asignaciones a
             LEFT JOIN proyectos p ON p.id = a.proyecto_id
@@ -75,6 +76,33 @@ export async function GET(request) {
         const canViewAsLeader = isLeader && session.grupo_id && Number(asignacion.grupo_id) === Number(session.grupo_id);
         if (!isAdmin && !canViewAsLeader && !isOwner) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+        }
+
+        if (source === 'delivery') {
+            const deliveryUrl = String(asignacion.drive_url || '');
+            if (!deliveryUrl) {
+                return NextResponse.json({ images: [] });
+            }
+
+            const folderId = extractFolderId(deliveryUrl);
+            if (!folderId) {
+                return NextResponse.json({ images: [] });
+            }
+
+            const files = await listDriveItemsByFolder(folderId);
+            const collator = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
+            const images = files
+                .filter((file) => IMAGE_MIME_TYPES.has(String(file?.mimeType || '')))
+                .map((file) => ({
+                    id: String(file.id),
+                    name: String(file.name),
+                    mimeType: String(file.mimeType),
+                    view_url: `https://drive.google.com/uc?export=view&id=${file.id}`,
+                    thumb_url: `https://drive.google.com/thumbnail?id=${file.id}&sz=w1200`,
+                }))
+                .sort((a, b) => collator.compare(a.name, b.name));
+
+            return NextResponse.json({ images });
         }
 
         if (!asignacion.proyecto_id || asignacion.capitulo === null || asignacion.capitulo === undefined) {

@@ -16,6 +16,7 @@ let dbInstance = null;
 let performanceIndexesEnsured = false;
 let suggestionSchemaEnsured = false;
 let assignmentGroupSnapshotEnsured = false;
+let assignmentReviewSchemaEnsured = false;
 
 export function getDb() {
   if (dbInstance) return dbInstance;
@@ -254,6 +255,28 @@ export async function ensureAssignmentGroupSnapshotSchema(db) {
   assignmentGroupSnapshotEnsured = true;
 }
 
+export async function ensureAssignmentReviewSchema(db) {
+  if (assignmentReviewSchemaEnsured || !db?.prepare) return;
+
+  const statements = [
+    `ALTER TABLE asignaciones ADD COLUMN review_status TEXT`,
+    `ALTER TABLE asignaciones ADD COLUMN review_comment TEXT`,
+    `ALTER TABLE asignaciones ADD COLUMN review_requested_at DATETIME`,
+    `ALTER TABLE asignaciones ADD COLUMN review_decision_at DATETIME`,
+    `ALTER TABLE asignaciones ADD COLUMN review_drive_item_id TEXT`,
+  ];
+
+  for (const sql of statements) {
+    try {
+      await db.prepare(sql).run();
+    } catch {
+      // Ignore duplicate-column and transient schema errors.
+    }
+  }
+
+  assignmentReviewSchemaEnsured = true;
+}
+
 function initTables(db) {
   // We use the synchronous DB instance here because this runs once on startup/import
   // and better-sqlite3 is sync.
@@ -275,7 +298,7 @@ function initTables(db) {
     `);
 
   // Migrations (simplified for readability, using Try-Catch for existing cols)
-  const runSafe = (sql) => { try { db.prepare(sql).run(); } catch (e) { } };
+  const runSafe = (sql) => { try { db.prepare(sql).run(); } catch { } };
 
   runSafe(`ALTER TABLE usuarios ADD COLUMN password TEXT`);
   runSafe(`ALTER TABLE usuarios ADD COLUMN roles TEXT`);
@@ -386,6 +409,11 @@ function initTables(db) {
   runSafe(`ALTER TABLE asignaciones ADD COLUMN capitulo INTEGER`);
   runSafe(`ALTER TABLE asignaciones ADD COLUMN traductor_tipo TEXT CHECK(traductor_tipo IN ('CORE', 'ENG'))`);
   runSafe(`ALTER TABLE asignaciones ADD COLUMN grupo_id_snapshot INTEGER REFERENCES grupos(id)`);
+  runSafe(`ALTER TABLE asignaciones ADD COLUMN review_status TEXT`);
+  runSafe(`ALTER TABLE asignaciones ADD COLUMN review_comment TEXT`);
+  runSafe(`ALTER TABLE asignaciones ADD COLUMN review_requested_at DATETIME`);
+  runSafe(`ALTER TABLE asignaciones ADD COLUMN review_decision_at DATETIME`);
+  runSafe(`ALTER TABLE asignaciones ADD COLUMN review_drive_item_id TEXT`);
   runSafe(`
     UPDATE asignaciones
     SET grupo_id_snapshot = (

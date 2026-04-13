@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,6 +8,9 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get('code');
     const error = searchParams.get('error');
+    const state = searchParams.get('state');
+    const cookieStore = await cookies();
+    const expectedState = cookieStore.get('google_oauth_state')?.value;
 
     // Usar el dominio del REDIRECT_URI configurado para evitar problemas con proxy inverso (nginx)
     const getBaseUrl = () => {
@@ -21,10 +25,17 @@ export async function GET(request) {
     };
 
     const baseUrl = getBaseUrl();
+    cookieStore.delete('google_oauth_state');
 
     if (error || !code) {
         return NextResponse.redirect(
             `${baseUrl}/configuracion?drive_oauth=error&reason=${error || 'no_code'}`
+        );
+    }
+
+    if (!state || !expectedState || state !== expectedState) {
+        return NextResponse.redirect(
+            `${baseUrl}/configuracion?drive_oauth=error&reason=invalid_state`
         );
     }
 

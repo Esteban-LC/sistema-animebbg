@@ -29,6 +29,10 @@ interface Asignacion {
     has_core_raw?: boolean;
     has_eng_raw?: boolean;
     core_raw_label?: string;
+    review_status?: 'Pendiente' | 'Aprobado' | 'Rechazado' | null;
+    review_comment?: string | null;
+    review_requested_at?: string | null;
+    review_decision_at?: string | null;
 }
 
 interface DriveImageItem {
@@ -128,11 +132,10 @@ function isValidDeliveryUrlForRole(role: string, rawUrl: string) {
     }
 }
 
-function getDeliveryPlaceholder(role: string) {
-    const roleLower = String(role || '').toLowerCase();
-    if (roleLower === 'traductor') return 'https://docs.google.com/document/d/...';
-    if (roleLower === 'typer' || roleLower === 'redrawer') return 'https://drive.google.com/drive/folders/...';
-    return 'https://...';
+function getDisplayStatus(asignacion: Asignacion | null) {
+    if (!asignacion) return '';
+    if (asignacion.review_status === 'Pendiente') return 'En Revision';
+    return String(asignacion.estado || '');
 }
 
 function getDriveLinkType(rawUrl: string): 'file' | 'folder' | 'other' {
@@ -192,11 +195,15 @@ export default function DetalleAsignacion() {
     const [driveImagesError, setDriveImagesError] = useState('');
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
     const [imageZoom, setImageZoom] = useState(1);
+    const [deliveryImages, setDeliveryImages] = useState<DriveImageItem[]>([]);
+    const [deliveryImagesLoading, setDeliveryImagesLoading] = useState(false);
+    const [deliveryImagesError, setDeliveryImagesError] = useState('');
+    const [selectedDeliveryImageIndex, setSelectedDeliveryImageIndex] = useState(0);
     const [selectedRawVariant, setSelectedRawVariant] = useState<'CORE' | 'ENG'>('CORE');
     const [isFloatingViewer, setIsFloatingViewer] = useState(false);
     const [isMobileViewer, setIsMobileViewer] = useState(false);
     const [floatPos, setFloatPos] = useState({ x: 40, y: 80 });
-    const [floatSize, setFloatSize] = useState({ w: 700, h: 520 });
+    const [floatSize] = useState({ w: 700, h: 520 });
     const floatRef = useRef<HTMLDivElement>(null);
     const dragState = useRef<{ dragging: boolean; startX: number; startY: number; origX: number; origY: number }>({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 });
     const touchStartX = useRef(0);
@@ -212,6 +219,8 @@ export default function DetalleAsignacion() {
     const [showCompleteModal, setShowCompleteModal] = useState(false);
     const [showCompleteConfirmModal, setShowCompleteConfirmModal] = useState(false);
     const [showCompleteFinalModal, setShowCompleteFinalModal] = useState(false);
+    const [reviewCommentDraft, setReviewCommentDraft] = useState('');
+    const [reviewProcessing, setReviewProcessing] = useState(false);
     const [completionLink, setCompletionLink] = useState('');
     const [zipDownloading, setZipDownloading] = useState(false);
     const [redrawZipFile, setRedrawZipFile] = useState<File | null>(null);
@@ -233,6 +242,7 @@ export default function DetalleAsignacion() {
     const isTyperOrRedrawer = assignmentRole === 'typer' || assignmentRole === 'redrawer';
     const isTyperInProgress = isTyper && String(asignacion?.estado || '') === 'En Proceso';
     const isTraductorInProgress = isTraductor && String(asignacion?.estado || '') === 'En Proceso';
+    const isPendingReview = String(asignacion?.review_status || '') === 'Pendiente';
     const canSeeRawControls = isTyper || isTraductorInProgress;
     const currentDriveUrl = driveUrl || asignacion?.drive_url || '';
     const engRawUrl = normalizeUrlValue(asignacion?.raw_url);
@@ -250,11 +260,15 @@ export default function DetalleAsignacion() {
     const viewerDriveLinkType = getDriveLinkType(viewerDriveUrl);
     const previewUrl = toDrivePreviewUrl(viewerDriveUrl);
     const selectedImage = driveImages[selectedImageIndex] || null;
+    const deliveryDriveLinkType = getDriveLinkType(currentDriveUrl);
+    const deliveryPreviewUrl = toDrivePreviewUrl(currentDriveUrl);
+    const selectedDeliveryImage = deliveryImages[selectedDeliveryImageIndex] || null;
+    const shouldShowDeliveryReview = isPendingReview || (Boolean(isAdmin || isLeader) && !!currentDriveUrl);
     const assignmentFontsItems = useMemo(() => projectFontsConfig.items, [projectFontsConfig.items]);
     const assignmentFontsSignature = assignmentFontsItems
         .map((item) => `${item.id}:${String(item.font_file_id || '').trim()}`)
         .join('|');
-    const completionActionLabel = usesManagedCompletionFlow ? 'Marcar como completado' : 'Entregar';
+    const completionActionLabel = usesManagedCompletionFlow ? 'Enviar a revision' : 'Entregar';
 
     const zoomOut = () => setImageZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10));
     const zoomIn = () => setImageZoom((z) => Math.min(3, Math.round((z + 0.1) * 10) / 10));
@@ -276,7 +290,10 @@ export default function DetalleAsignacion() {
     const onTouchStartSwipe = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
     const onTouchEndSwipe = (e: React.TouchEvent) => {
         const diff = touchStartX.current - e.changedTouches[0].clientX;
-        if (Math.abs(diff) > 80) diff > 0 ? goNextImage() : goPrevImage();
+        if (Math.abs(diff) > 80) {
+            if (diff > 0) goNextImage();
+            else goPrevImage();
+        }
     };
 
     useEffect(() => {
@@ -363,6 +380,46 @@ export default function DetalleAsignacion() {
 
         return () => { active = false; };
     }, [isTraductor, isTraductorInProgress, isTyper, id, activeRawVariant, hasCoreRaw, hasEngRaw]);
+
+    useEffect(() => {
+        const canPreviewDeliveredFolder = shouldShowDeliveryReview && isTyperOrRedrawer && deliveryDriveLinkType === 'folder';
+        if (!canPreviewDeliveredFolder) {
+            setDeliveryImages([]);
+            setDeliveryImagesError('');
+            setDeliveryImagesLoading(false);
+            setSelectedDeliveryImageIndex(0);
+            return;
+        }
+
+        let active = true;
+        setDeliveryImagesLoading(true);
+        setDeliveryImagesError('');
+        setSelectedDeliveryImageIndex(0);
+
+        fetch(`/api/drive/folder-images-for-assignment?id=${id}&source=delivery`)
+            .then(async (res) => {
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data?.error || 'No se pudo leer la entrega subida');
+                }
+                const images = Array.isArray(data?.images) ? data.images : [];
+                if (!active) return;
+                setDeliveryImages(images);
+                if (images.length === 0) {
+                    setDeliveryImagesError('No se detectaron imagenes dentro de la entrega subida.');
+                }
+            })
+            .catch((error: unknown) => {
+                if (!active) return;
+                setDeliveryImages([]);
+                setDeliveryImagesError(getErrorMessage(error, 'No se pudo cargar la entrega subida.'));
+            })
+            .finally(() => {
+                if (active) setDeliveryImagesLoading(false);
+            });
+
+        return () => { active = false; };
+    }, [shouldShowDeliveryReview, isTyperOrRedrawer, deliveryDriveLinkType, id]);
 
     useEffect(() => {
         if (hasCoreRaw && hasEngRaw) {
@@ -488,17 +545,19 @@ export default function DetalleAsignacion() {
 
     const updateEstado = async (nuevoEstado: string, deliveryUrlOverride?: string) => {
         try {
+            let updated: Asignacion | null = null;
             if (nuevoEstado === 'Completado') {
                 const finalDeliveryUrl = deliveryUrlOverride ?? (isStaffView ? deliveryUrl : driveUrl);
                 if (!isValidDeliveryUrlForRole(asignacion?.rol || '', finalDeliveryUrl)) {
                     showToast('Debes agregar un enlace de entrega valido para este rol antes de terminar.', 'error');
                     return;
                 }
-                await patchAsignacion({ estado: nuevoEstado, drive_url: normalizeUrlValue(finalDeliveryUrl) });
+                updated = await patchAsignacion({ estado: nuevoEstado, drive_url: normalizeUrlValue(finalDeliveryUrl) });
             } else {
-                await patchAsignacion({ estado: nuevoEstado });
+                updated = await patchAsignacion({ estado: nuevoEstado });
             }
-            showToast(`Estado actualizado a ${nuevoEstado}`, 'info');
+            const nextStatus = updated?.review_status === 'Pendiente' ? 'En Revision' : updated?.estado || nuevoEstado;
+            showToast(`Estado actualizado a ${nextStatus}`, 'info');
         } catch (error: unknown) {
             showToast(getErrorMessage(error, 'Error al actualizar estado'), 'error');
         }
@@ -518,12 +577,26 @@ export default function DetalleAsignacion() {
         setShowCompleteFinalModal(false);
     };
 
-    const continueCompleteFlow = () => {
-        if (!isValidDeliveryUrlForRole(asignacion?.rol || '', completionLink)) {
-            showToast('Debes agregar un enlace de entrega valido antes de terminar.', 'error');
+    const handleReviewDecision = async (action: 'approve' | 'reject') => {
+        if (!asignacion || reviewProcessing) return;
+        if (action === 'reject' && !reviewCommentDraft.trim()) {
+            showToast('Agrega un comentario para explicar el rechazo.', 'error');
             return;
         }
-        setShowCompleteConfirmModal(true);
+
+        setReviewProcessing(true);
+        try {
+            await patchAsignacion({
+                review_action: action,
+                review_comment: reviewCommentDraft.trim() || null,
+            });
+            setReviewCommentDraft('');
+            showToast(action === 'approve' ? 'Entrega aprobada.' : 'Entrega rechazada y eliminada de Drive.', 'success');
+        } catch (error: unknown) {
+            showToast(getErrorMessage(error, 'No se pudo procesar la revision'), 'error');
+        } finally {
+            setReviewProcessing(false);
+        }
     };
 
     const handleCompleteFlowConfirm = () => {
@@ -625,10 +698,15 @@ export default function DetalleAsignacion() {
                 showToast(data?.error || 'Error al subir el archivo', 'error');
                 return;
             }
-            showToast(`Subido correctamente (${data.uploaded} imagenes). Asignacion completada.`, 'success');
+            showToast(`Subido correctamente (${data.uploaded} archivos). Entrega enviada a revision.`, 'success');
             setRedrawZipFile(null);
             closeCompleteFlow();
-            setAsignacion(prev => prev ? { ...prev, estado: 'Completado', drive_url: data.folder_url } : null);
+            setAsignacion(prev => prev ? {
+                ...prev,
+                estado: data.estado || 'En Proceso',
+                drive_url: data.folder_url,
+                review_status: data.review_status || 'Pendiente',
+            } : null);
             socket?.emit('content-changed');
         } catch {
             showToast('Error al subir el zip', 'error');
@@ -749,9 +827,19 @@ export default function DetalleAsignacion() {
                     <div className="bg-surface-dark p-5 rounded-xl border border-gray-800 space-y-3">
                         <p className="text-sm text-gray-300"><strong>Usuario:</strong> {asignacion.usuario_nombre}</p>
                         <p className="text-sm text-gray-300"><strong>Rol:</strong> {asignacion.rol}</p>
-                        <p className="text-sm text-gray-300"><strong>Estado:</strong> {asignacion.estado}</p>
+                        <p className="text-sm text-gray-300"><strong>Estado:</strong> {getDisplayStatus(asignacion)}</p>
                         <p className="text-sm text-gray-300"><strong>Capitulo:</strong> {asignacion.capitulo ?? '-'}</p>
                         <p className="text-sm text-gray-300"><strong>Asignado:</strong> {formatActivityDate(asignacion.asignado_en)}</p>
+                        {asignacion.review_status === 'Pendiente' && (
+                            <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-xs text-violet-200">
+                                Entrega enviada y pendiente de revision por lider/admin.
+                            </div>
+                        )}
+                        {asignacion.review_status === 'Rechazado' && asignacion.review_comment && (
+                            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                                Motivo del rechazo: {asignacion.review_comment}
+                            </div>
+                        )}
                         {!isStaffView ? (
                             <div className="space-y-2 pt-2">
                                 {['Pendiente', 'En Proceso'].map(status => (
@@ -766,10 +854,38 @@ export default function DetalleAsignacion() {
                                 {asignacion.estado === 'En Proceso' && (
                                     <button
                                         onClick={openCompleteFlow}
+                                        disabled={isPendingReview}
                                         className="w-full py-2 rounded-lg text-sm bg-emerald-600 text-white"
                                     >
                                         {completionActionLabel}
                                     </button>
+                                )}
+                                {isPendingReview && (isAdmin || isLeader) && (
+                                    <div className="space-y-2 rounded-xl border border-violet-500/30 bg-violet-500/10 p-3">
+                                        <p className="text-xs font-bold uppercase tracking-wider text-violet-300">Revision pendiente</p>
+                                        <textarea
+                                            value={reviewCommentDraft}
+                                            onChange={(e) => setReviewCommentDraft(e.target.value)}
+                                            className="w-full min-h-[88px] rounded-lg border border-gray-700 bg-background-dark px-3 py-2 text-sm text-white"
+                                            placeholder="Comentario para rechazo o nota de aprobacion opcional..."
+                                        />
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button
+                                                onClick={() => handleReviewDecision('reject')}
+                                                disabled={reviewProcessing || !reviewCommentDraft.trim()}
+                                                className="w-full py-2 rounded-lg text-sm bg-red-600 text-white disabled:opacity-50"
+                                            >
+                                                {reviewProcessing ? 'Procesando...' : 'Rechazar'}
+                                            </button>
+                                            <button
+                                                onClick={() => handleReviewDecision('approve')}
+                                                disabled={reviewProcessing}
+                                                className="w-full py-2 rounded-lg text-sm bg-emerald-600 text-white disabled:opacity-50"
+                                            >
+                                                {reviewProcessing ? 'Procesando...' : 'Aprobar'}
+                                            </button>
+                                        </div>
+                                    </div>
                                 )}
                                 {asignacion.estado === 'Completado' && (
                                     <div className="w-full py-2 rounded-lg text-sm bg-emerald-600/15 text-emerald-300 border border-emerald-500/30 text-center">
@@ -790,10 +906,16 @@ export default function DetalleAsignacion() {
                                 {asignacion.estado === 'En Proceso' && (
                                     <button
                                         onClick={openCompleteFlow}
+                                        disabled={isPendingReview}
                                         className="w-full py-2 rounded-lg text-sm bg-emerald-600 text-white"
                                     >
                                         {completionActionLabel}
                                     </button>
+                                )}
+                                {isPendingReview && (
+                                    <div className="w-full py-2 rounded-lg text-sm bg-violet-600/15 text-violet-200 border border-violet-500/30 text-center">
+                                        Entrega enviada a revision
+                                    </div>
                                 )}
                             </div>
                         )}
@@ -804,6 +926,76 @@ export default function DetalleAsignacion() {
                             <h3 className="text-sm text-white mb-3">
                                 {isTraductor ? 'Visualizador de paginas (Drive)' : 'Drive'}
                             </h3>
+                            {currentDriveUrl && (
+                                <a
+                                    href={currentDriveUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-2 mb-3 text-xs bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 px-3 py-2 rounded-lg hover:bg-emerald-500/25"
+                                >
+                                    <span className="material-icons-round text-sm">open_in_new</span>
+                                    Abrir entrega en Drive
+                                </a>
+                            )}
+                            {shouldShowDeliveryReview && (
+                                <div className="mb-4 rounded-xl border border-violet-500/30 bg-violet-500/10 p-4">
+                                    <p className="text-xs font-bold uppercase tracking-wider text-violet-300">Entrega subida</p>
+                                    <p className="text-[11px] text-violet-100/80 mt-1">
+                                        Esta es la entrega que se aprobara o rechazara. Si la rechazas, se eliminara de Drive para que la vuelvan a subir corregida.
+                                    </p>
+                                </div>
+                            )}
+                            {shouldShowDeliveryReview && isTyperOrRedrawer && deliveryDriveLinkType === 'folder' && (
+                                <div className="mb-4 border border-violet-500/20 rounded-xl bg-background-dark overflow-hidden">
+                                    <div className="px-4 py-3 border-b border-violet-500/20 flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-white">Preview de entrega</p>
+                                            <p className="text-[11px] text-muted-dark">
+                                                {deliveryImages.length > 0 ? `${selectedDeliveryImageIndex + 1}/${deliveryImages.length}` : 'Sin imagenes detectadas'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    {deliveryImagesLoading && (
+                                        <div className="p-4 text-sm text-gray-300">Cargando entrega...</div>
+                                    )}
+                                    {!deliveryImagesLoading && deliveryImagesError && (
+                                        <div className="p-4 text-sm text-red-300">{deliveryImagesError}</div>
+                                    )}
+                                    {!deliveryImagesLoading && !deliveryImagesError && selectedDeliveryImage && (
+                                        <div className="grid grid-cols-[180px_minmax(0,1fr)] h-[520px]">
+                                            <div className="border-r border-violet-500/20 p-2 overflow-y-auto space-y-2">
+                                                {deliveryImages.map((img, idx) => (
+                                                    <button
+                                                        key={img.id}
+                                                        type="button"
+                                                        onClick={() => setSelectedDeliveryImageIndex(idx)}
+                                                        className={`w-full text-left p-2 rounded border ${idx === selectedDeliveryImageIndex ? 'border-violet-500/50 bg-violet-500/10' : 'border-gray-700 bg-surface-dark'}`}
+                                                    >
+                                                        <p className="text-xs text-white truncate">{img.name}</p>
+                                                        <p className="text-[10px] text-muted-dark mt-1">Pag. {idx + 1}</p>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <div className="overflow-auto flex items-start justify-center bg-black/40 p-3">
+                                                <img src={`/api/drive/image?id=${selectedDeliveryImage.id}`} alt={selectedDeliveryImage.name} className="block w-full h-auto" />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            {shouldShowDeliveryReview && isTraductor && deliveryPreviewUrl && (
+                                <div className="mb-4 border border-violet-500/20 rounded-xl overflow-hidden bg-background-dark">
+                                    <div className="px-4 py-3 border-b border-violet-500/20">
+                                        <p className="text-sm font-semibold text-white">Preview de entrega</p>
+                                        <p className="text-[11px] text-muted-dark">Vista previa del documento subido a Drive.</p>
+                                    </div>
+                                    <iframe
+                                        title="Vista previa entrega"
+                                        src={deliveryPreviewUrl}
+                                        className="w-full h-[420px]"
+                                    />
+                                </div>
+                            )}
                             {viewerDriveUrl && !isTraductor && !isRedrawer && !isTyper && (
                                 <a
                                     href={viewerDriveUrl}
@@ -1306,8 +1498,8 @@ export default function DetalleAsignacion() {
                                 <div className="p-6 space-y-4">
                                     <p className="text-xs text-muted-dark">
                                         {isRedrawer
-                                            ? 'Sube el zip con las paginas limpias. El sistema las subira automaticamente a Drive y marcara la tarea como completada.'
-                                            : 'Sube el zip con las paginas typeadas. El sistema las subira automaticamente a Drive y marcara la tarea como completada.'}
+                                            ? 'Sube el zip con las paginas limpias. El sistema las subira automaticamente a Drive y la enviara a revision.'
+                                            : 'Sube el zip con las paginas typeadas. El sistema las subira automaticamente a Drive y la enviara a revision.'}
                                     </p>
                                     <label className="block w-full cursor-pointer rounded-xl border-2 border-dashed border-gray-700 hover:border-emerald-500/50 p-6 text-center transition-colors">
                                         <span className="material-icons-round text-3xl text-muted-dark mb-2 block">upload_file</span>
@@ -1327,7 +1519,7 @@ export default function DetalleAsignacion() {
                                         </p>
                                     )}
                                     <p className="text-[11px] text-muted-dark leading-relaxed">
-                                        Al subir, la tarea dejara de mostrarse en tus tareas activas.
+                                        Al subir, la entrega quedara bloqueada hasta que lider o admin la apruebe.
                                     </p>
                                 </div>
                                 <div className="p-6 pt-0 flex gap-3">
@@ -1343,7 +1535,7 @@ export default function DetalleAsignacion() {
                                         disabled={!redrawZipFile || redrawUploading}
                                         className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50"
                                     >
-                                        {redrawUploading ? 'Subiendo...' : 'Subir y completar'}
+                                        {redrawUploading ? 'Subiendo...' : 'Subir y enviar'}
                                     </button>
                                 </div>
                             </>
@@ -1351,7 +1543,7 @@ export default function DetalleAsignacion() {
                             <>
                                 <div className="p-6 space-y-4">
                                     <p className="text-xs text-muted-dark">
-                                        Sube tu archivo de traduccion (.docx, .pdf, etc.). El sistema lo subira automaticamente a Drive y marcara la tarea como completada.
+                                        Sube tu archivo de traduccion (.docx, .doc, etc.). El sistema lo subira automaticamente a Drive y lo enviara a revision.
                                     </p>
                                     <label className="block w-full cursor-pointer rounded-xl border-2 border-dashed border-gray-700 hover:border-emerald-500/50 p-6 text-center transition-colors">
                                         <span className="material-icons-round text-3xl text-muted-dark mb-2 block">upload_file</span>
@@ -1371,7 +1563,7 @@ export default function DetalleAsignacion() {
                                         </p>
                                     )}
                                     <p className="text-[11px] text-muted-dark leading-relaxed">
-                                        Al subir, la tarea dejara de mostrarse en tus tareas activas.
+                                        Al subir, la entrega quedara bloqueada hasta que lider o admin la apruebe.
                                     </p>
                                 </div>
                                 <div className="p-6 pt-0 flex gap-3">
@@ -1387,7 +1579,7 @@ export default function DetalleAsignacion() {
                                         disabled={!redrawZipFile || redrawUploading}
                                         className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-50"
                                     >
-                                        {redrawUploading ? 'Subiendo...' : 'Subir y completar'}
+                                        {redrawUploading ? 'Subiendo...' : 'Subir y enviar'}
                                     </button>
                                 </div>
                             </>
@@ -1398,8 +1590,8 @@ export default function DetalleAsignacion() {
 
             <ConfirmModal
                 isOpen={showCompleteConfirmModal}
-                title="Confirmar cierre"
-                message="Estas seguro de marcar esta tarea como completada? Ya no se mostrara entre tus tareas activas."
+                title="Confirmar envio"
+                message="Estas seguro de enviar esta entrega a revision? Permanecera bloqueada hasta que lider o admin la apruebe."
                 onConfirm={handleCompleteFlowConfirm}
                 onCancel={() => setShowCompleteConfirmModal(false)}
                 confirmText="Si, continuar"
@@ -1408,10 +1600,10 @@ export default function DetalleAsignacion() {
             <ConfirmModal
                 isOpen={showCompleteFinalModal}
                 title="Ultima confirmacion"
-                message="Ultima revision: confirma solo si el enlace de entrega ya es el definitivo."
+                message="Confirma solo si esta entrega ya es la version que quieres mandar a revision."
                 onConfirm={submitCompleteFlow}
                 onCancel={() => setShowCompleteFinalModal(false)}
-                confirmText="Completar tarea"
+                confirmText="Enviar a revision"
             />
         </div>
     );
