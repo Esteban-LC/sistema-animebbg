@@ -393,6 +393,7 @@ export default function ProyectosPage() {
     const [savingFuentes, setSavingFuentes] = useState(false);
     const [saveFuentesInfo, setSaveFuentesInfo] = useState('');
     const [saveFuentesError, setSaveFuentesError] = useState('');
+    const [fuentesTemplateProjectId, setFuentesTemplateProjectId] = useState('');
     const roles = user?.roles || [];
     const productionRoles = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
     const hasProductionRole = roles.some((role) => productionRoles.includes(role));
@@ -489,6 +490,7 @@ export default function ProyectosPage() {
         setDriveFontsError('');
         setSaveFuentesInfo('');
         setSaveFuentesError('');
+        setFuentesTemplateProjectId('');
         setModalFocusSection(focusSection);
         setIsFuentesSectionOpen(focusSection === 'fuentes');
         if (proyecto) {
@@ -972,6 +974,30 @@ export default function ProyectosPage() {
         }
     };
 
+    const importFuentesFromProject = () => {
+        const sourceProjectId = Number(fuentesTemplateProjectId || 0);
+        if (!sourceProjectId) {
+            setSaveFuentesError('Selecciona primero un proyecto origen.');
+            return;
+        }
+
+        const sourceProject = proyectos.find((project) => Number(project.id) === sourceProjectId);
+        if (!sourceProject?.fuentes_config) {
+            setSaveFuentesError('Ese proyecto no tiene fuentes configuradas.');
+            return;
+        }
+
+        const importedConfig = normalizeFuentesConfig(sourceProject.fuentes_config);
+        setCurrentProject((prev) => ({
+            ...prev,
+            fuentes_config: importedConfig,
+        }));
+        setAvailableDriveFonts([]);
+        setDriveFontsError('');
+        setSaveFuentesError('');
+        setSaveFuentesInfo(`Se copiaron las fuentes desde "${sourceProject.titulo}".`);
+    };
+
     const addFuenteItem = () => {
         setCurrentProject((prev) => {
             const config = normalizeFuentesConfig(prev.fuentes_config);
@@ -1017,6 +1043,56 @@ export default function ProyectosPage() {
         () => normalizeFuentesConfig(currentProject.fuentes_config),
         [currentProject.fuentes_config]
     );
+    const reusableFuentesProjects = useMemo(
+        () => proyectos.filter((project) =>
+            Number(project.id) !== Number(currentProject.id || 0)
+            && hasProjectFuentesConfigured(project.fuentes_config)
+        ),
+        [proyectos, currentProject.id]
+    );
+    const reusableFontLibrary = useMemo(() => {
+        const seen = new Set<string>();
+        const options: Array<{
+            key: string;
+            label: string;
+            font_file_id: string;
+            font_file_name: string;
+            source_project_title: string;
+            source_item_name: string;
+            source_item_para: string;
+            source_item_example: string;
+            source_item_style: 'normal' | 'italic';
+        }> = [];
+
+        for (const project of reusableFuentesProjects) {
+            const config = normalizeFuentesConfig(project.fuentes_config);
+            for (const item of config.items) {
+                const fontId = String(item.font_file_id || '').trim();
+                const fontName = String(item.font_file_name || item.nombre || '').trim();
+                if (!fontId && !fontName) continue;
+
+                const sourceItemName = String(item.nombre || '').trim();
+                const sourceItemPara = String(item.para || '').trim();
+                const dedupeKey = `${project.id || 'p'}::${item.id}::${fontId}::${fontName.toLowerCase()}::${sourceItemName.toLowerCase()}::${sourceItemPara.toLowerCase()}`;
+                if (seen.has(dedupeKey)) continue;
+                seen.add(dedupeKey);
+
+                options.push({
+                    key: `${project.id || 'p'}:${item.id}`,
+                    label: `${sourceItemName || stripFontExtension(fontName)} -> ${sourceItemPara || 'Sin etiqueta'} | ${project.titulo}`,
+                    font_file_id: fontId,
+                    font_file_name: fontName,
+                    source_project_title: project.titulo,
+                    source_item_name: sourceItemName,
+                    source_item_para: sourceItemPara,
+                    source_item_example: String(item.ejemplo || '').trim(),
+                    source_item_style: item.estilo === 'normal' ? 'normal' : 'italic',
+                });
+            }
+        }
+
+        return options.sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base', numeric: true }));
+    }, [reusableFuentesProjects]);
     const fuentesItemsForPreview = currentFuentesConfig.items;
     const fuentesPreviewSignature = fuentesItemsForPreview
         .map((item) => `${item.id}:${String(item.font_file_id || '').trim()}`)
@@ -1604,6 +1680,36 @@ export default function ProyectosPage() {
                                                 className="w-full mt-3 bg-background-dark border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-primary"
                                                 placeholder="Titulo de la guia"
                                             />
+                                            {reusableFuentesProjects.length > 0 && (
+                                                <div className="rounded-lg border border-gray-700 bg-background-dark/40 p-3 space-y-2">
+                                                    <p className="text-[11px] text-muted-dark uppercase tracking-wider">Reutilizar desde otro proyecto</p>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2">
+                                                        <select
+                                                            value={fuentesTemplateProjectId}
+                                                            onChange={(e) => setFuentesTemplateProjectId(e.target.value)}
+                                                            className="bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
+                                                        >
+                                                            <option value="">Selecciona un proyecto con fuentes</option>
+                                                            {reusableFuentesProjects.map((project) => (
+                                                                <option key={project.id} value={String(project.id || '')}>
+                                                                    {project.titulo}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        <button
+                                                            type="button"
+                                                            onClick={importFuentesFromProject}
+                                                            disabled={!fuentesTemplateProjectId}
+                                                            className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold"
+                                                        >
+                                                            Copiar config
+                                                        </button>
+                                                    </div>
+                                                    <p className="text-[11px] text-muted-dark">
+                                                        Copia enlace, asignaciones e IDs de fuentes del proyecto origen para no volver a subirlas.
+                                                    </p>
+                                                </div>
+                                            )}
                                             <div className="grid grid-cols-1 gap-2">
                                                 <input
                                                     type="url"
@@ -1669,6 +1775,32 @@ export default function ProyectosPage() {
                                                                 className="bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
                                                                 placeholder="Para (ej: Dialogos principales)"
                                                             />
+                                                        </div>
+                                                        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2">
+                                                            <select
+                                                                value=""
+                                                                onChange={(e) => {
+                                                                    const selected = reusableFontLibrary.find((font) => font.key === e.target.value);
+                                                                    if (!selected) return;
+                                                                    updateFuenteItem(item.id, {
+                                                                        font_file_id: selected.font_file_id,
+                                                                        font_file_name: selected.font_file_name,
+                                                                        nombre: selected.source_item_name || (selected.font_file_name ? stripFontExtension(selected.font_file_name) : item.nombre),
+                                                                        para: selected.source_item_para || '',
+                                                                        ejemplo: selected.source_item_example || item.ejemplo,
+                                                                        estilo: selected.source_item_style,
+                                                                    });
+                                                                }}
+                                                                className="bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary"
+                                                            >
+                                                                <option value="">Usar fuente ya guardada en otro proyecto</option>
+                                                                {reusableFontLibrary.map((font) => (
+                                                                    <option key={font.key} value={font.key}>{font.label}</option>
+                                                                ))}
+                                                            </select>
+                                                            <p className="text-[11px] text-muted-dark">
+                                                                Formato: nombre interno a etiqueta asignada | proyecto origen
+                                                            </p>
                                                         </div>
                                                         <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2">
                                                             <select
