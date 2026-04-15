@@ -222,6 +222,7 @@ function NuevaAsignacionContent() {
     const coreTranslatorLabel = getCoreTranslatorLabelByProjectType(selectedProject?.tipo);
     const canUseCoreTranslator = Number(selectedProject?.raw_secundario_activo || 0) === 1;
     const canUseCoreTranslatorForSelection = canUseCoreTranslator && selectedUserHasTradCore;
+    const hasAnyTranslatorSubroleAvailable = selectedUserHasTradEng || canUseCoreTranslatorForSelection;
 
     useEffect(() => {
         fetch('/api/usuarios')
@@ -278,24 +279,9 @@ function NuevaAsignacionContent() {
         const validRoles = resolveAvailableRoles(roles);
         setRolesDisponiblesUsuario(validRoles);
 
-        const hasTradCore =
-            roles.includes('Traductor')
-            || roles.includes(TRANSLATOR_KO_ROLE)
-            || roles.includes(TRANSLATOR_JAP_ROLE)
-            || roles.includes(TRANSLATOR_CORE_LEGACY_ROLE);
-        const hasTradEng = roles.includes(TRANSLATOR_ENG_ROLE);
-
         setFormData((prev) => {
             const next = { ...prev };
             let changed = false;
-
-            if (hasTradEng && !hasTradCore && prev.traductor_tipo !== 'ENG') {
-                next.traductor_tipo = 'ENG';
-                changed = true;
-            } else if (hasTradCore && !hasTradEng && prev.traductor_tipo !== 'CORE') {
-                next.traductor_tipo = 'CORE';
-                changed = true;
-            }
 
             if (validRoles.length === 1 && prev.rol !== validRoles[0]) {
                 next.rol = validRoles[0];
@@ -328,6 +314,10 @@ function NuevaAsignacionContent() {
             userRoles.includes(TRANSLATOR_CORE_LEGACY_ROLE);
         const hasTradEng = userRoles.includes(TRANSLATOR_ENG_ROLE);
         const coreEnabled = Number(proyecto?.raw_secundario_activo || 0) === 1 && hasTradCore;
+
+        if (!hasTradEng && !coreEnabled) {
+            return;
+        }
 
         if (currentTipo === 'CORE' && !coreEnabled) {
             setFormData((prev) => prev.traductor_tipo === 'CORE' ? { ...prev, traductor_tipo: 'ENG', capitulo: '' } : prev);
@@ -363,6 +353,10 @@ function NuevaAsignacionContent() {
         }
         if (!formData.rol) {
             setNotice({ type: 'error', message: 'Selecciona un rol para continuar.' });
+            return;
+        }
+        if (formData.rol === 'Traductor' && !hasAnyTranslatorSubroleAvailable) {
+            setNotice({ type: 'error', message: 'Este usuario no tiene un subrol traductor valido para este proyecto.' });
             return;
         }
         if (!formData.capitulo) {
@@ -674,6 +668,11 @@ function NuevaAsignacionContent() {
                                         {`Traductor ${coreTranslatorLabel}`}
                                     </option>
                                 </select>
+                                {!hasAnyTranslatorSubroleAvailable && (
+                                    <p className="text-xs text-red-300 mt-2">
+                                        Este usuario no tiene un subrol traductor compatible con este proyecto.
+                                    </p>
+                                )}
                             </div>
                         )}
 
