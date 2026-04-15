@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { formatActivityDate } from '@/utils/date';
 import { useSocket } from '@/context/SocketContext';
 
@@ -11,12 +12,15 @@ interface Notificacion {
     mensaje: string;
     leida: number;
     creado_en: string;
+    asignacion_id?: number | null;
+    target_url?: string;
 }
 
 const NOTIFICATIONS_PAGE_POLL_MS = process.env.NODE_ENV === 'production' ? 30000 : 8000;
 
 export default function NotificacionesPage() {
     const { socket } = useSocket();
+    const router = useRouter();
     const [items, setItems] = useState<Notificacion[]>([]);
     const [unread, setUnread] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -125,6 +129,25 @@ export default function NotificacionesPage() {
         }
     };
 
+    const openNotification = async (item: Notificacion) => {
+        if (processingId !== null) return;
+        if (!item.target_url) return;
+
+        if (!item.leida) {
+            setProcessingId(item.id);
+            try {
+                await fetch(`/api/notificaciones/${item.id}`, { method: 'PATCH' });
+                setItems((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, leida: 1 } : entry));
+                setUnread((prev) => Math.max(0, prev - 1));
+                window.dispatchEvent(new Event('notifications:changed'));
+            } finally {
+                setProcessingId(null);
+            }
+        }
+
+        router.push(item.target_url);
+    };
+
     const grouped = useMemo(() => items, [items]);
 
     return (
@@ -165,9 +188,20 @@ export default function NotificacionesPage() {
                         grouped.map((item) => (
                             <div key={item.id} className={`rounded-xl border p-4 ${item.leida ? 'bg-surface-dark border-gray-800' : 'bg-surface-darker border-primary/40'}`}>
                                 <div className="flex items-start justify-between gap-4">
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 flex-1 text-left">
                                         <div className="flex items-center gap-2">
-                                            <p className="text-white font-bold truncate">{item.titulo}</p>
+                                            {item.target_url && item.tipo === 'entrega_revision' ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openNotification(item)}
+                                                    disabled={processingId !== null}
+                                                    className="text-white font-bold truncate hover:text-primary transition-colors disabled:opacity-60"
+                                                >
+                                                    {item.titulo}
+                                                </button>
+                                            ) : (
+                                                <p className="text-white font-bold truncate">{item.titulo}</p>
+                                            )}
                                             {!item.leida && <span className="w-2 h-2 rounded-full bg-primary"></span>}
                                         </div>
                                         <p className="text-sm text-gray-300 mt-1">{item.mensaje}</p>

@@ -3,6 +3,17 @@ import { publishNotificationEvent } from '@/lib/realtime';
 import { sendPushToUser } from '@/lib/push';
 import { sendFcmToUser } from '@/lib/fcm';
 
+function getNotificationUrl(tipo, data) {
+    const asignacionId = Number(data?.asignacion_id);
+    if (tipo === 'entrega_revision' && Number.isFinite(asignacionId) && asignacionId > 0) {
+        return `/asignaciones/${asignacionId}`;
+    }
+    if (tipo === 'solicitud_asignacion') {
+        return '/asignaciones';
+    }
+    return null;
+}
+
 export async function ensureNotificationsTable(db) {
     if (ensured) return;
 
@@ -58,7 +69,12 @@ export async function createNotification(db, { usuarioId, tipo, titulo, mensaje,
     });
 
     try {
-        const pushPayload = { title: titulo, body: mensaje, url: '/notificaciones', tag: tipo || 'general' };
+        const pushPayload = {
+            title: titulo,
+            body: mensaje,
+            url: getNotificationUrl(tipo, data) || '/notificaciones',
+            tag: tipo || 'general'
+        };
         await Promise.allSettled([
             sendPushToUser(db, Number(usuarioId), pushPayload),
             sendFcmToUser(db, Number(usuarioId), pushPayload),

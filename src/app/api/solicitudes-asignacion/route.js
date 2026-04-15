@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
+import { createNotification } from '@/lib/notifications';
 
 export const dynamic = 'force-dynamic';
 const ACTIVE_ASSIGNMENT_STATES = ['Pendiente', 'En Proceso'];
@@ -137,10 +138,17 @@ export async function POST(request) {
             `).all(session.grupo_id);
 
             for (const admin of admins) {
-                await db.prepare(`
-                    INSERT INTO notificaciones (usuario_id, tipo, mensaje, leida, creado_en)
-                    VALUES (?, 'solicitud_asignacion', ?, 0, CURRENT_TIMESTAMP)
-                `).run(admin.id, `${session.nombre} solicita asignacion como ${rol}`);
+                await createNotification(db, {
+                    usuarioId: Number(admin.id),
+                    tipo: 'solicitud_asignacion',
+                    titulo: 'Nueva solicitud de asignacion',
+                    mensaje: `${session.nombre} solicito asignacion como ${rol}`,
+                    data: {
+                        usuario_id: Number(session.usuario_id),
+                        grupo_id: session.grupo_id ? Number(session.grupo_id) : null,
+                        rol: String(rol),
+                    },
+                });
             }
         } catch { /* notificaciones opcionales */ }
 

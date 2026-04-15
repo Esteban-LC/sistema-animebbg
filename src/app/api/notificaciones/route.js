@@ -42,6 +42,17 @@ function extractAsignacionId(item) {
     }
 }
 
+function getNotificationTargetUrl(item) {
+    const asignacionId = extractAsignacionId(item);
+    if (item?.tipo === 'entrega_revision' && Number.isFinite(asignacionId) && Number(asignacionId) > 0) {
+        return `/asignaciones/${Number(asignacionId)}`;
+    }
+    if (item?.tipo === 'solicitud_asignacion') {
+        return '/asignaciones';
+    }
+    return null;
+}
+
 async function getAssignmentGroupMap(db, asignacionIds) {
     if (!Array.isArray(asignacionIds) || asignacionIds.length === 0) return new Map();
 
@@ -169,7 +180,11 @@ export async function GET(request) {
         }
 
         return NextResponse.json({
-            items: summaryOnly ? [] : (Array.isArray(visibleItems) ? visibleItems : []),
+            items: summaryOnly ? [] : (Array.isArray(visibleItems) ? visibleItems : []).map((item) => ({
+                ...item,
+                target_url: getNotificationTargetUrl(item),
+                asignacion_id: extractAsignacionId(item),
+            })),
             unread: await getUnreadCountSafe(db, userId),
         });
     } catch (error) {
