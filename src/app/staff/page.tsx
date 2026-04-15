@@ -139,6 +139,7 @@ export default function StaffPage() {
     const [rouletteSpinning, setRouletteSpinning] = useState(false);
     const [rouletteRotation, setRouletteRotation] = useState(0);
     const [rouletteResult, setRouletteResult] = useState<RouletteAssignmentResult | null>(null);
+    const [showAllStaffProjects, setShowAllStaffProjects] = useState(false);
 
     // Solicitud de asignación para rango Nuevo
     const [solicitudRol, setSolicitudRol] = useState('');
@@ -178,6 +179,7 @@ export default function StaffPage() {
         const labels = proyectos.slice(0, 8).map((project) => shortenWheelLabel(project.titulo));
         return labels.length > 0 ? labels : fallback;
     }, [proyectos]);
+    const visibleStaffProjects = showAllStaffProjects ? proyectos : proyectos.slice(0, 6);
     const translatorSubroleOptions = useMemo(() => {
         const options: Array<{ value: 'ENG' | 'CORE'; label: string }> = [];
         if (selfHasTradEng) {
@@ -783,11 +785,22 @@ export default function StaffPage() {
                             {assignMode === 'normal' && (
                                 <>
                                     <div className="space-y-2">
-                                        <p className="text-[10px] font-bold text-muted-dark uppercase tracking-widest text-center">
-                                            Proyecto
-                                        </p>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-[10px] font-bold text-muted-dark uppercase tracking-widest text-center flex-1">
+                                                Proyecto
+                                            </p>
+                                            {proyectos.length > 6 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowAllStaffProjects((prev) => !prev)}
+                                                    className="shrink-0 px-3 py-1.5 rounded-lg border border-gray-700 bg-background-dark text-[10px] font-bold uppercase tracking-wider text-gray-300 hover:border-primary/40 hover:text-white transition-colors"
+                                                >
+                                                    {showAllStaffProjects ? 'Mostrar menos' : `Mostrar mas (${proyectos.length})`}
+                                                </button>
+                                            )}
+                                        </div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                            {proyectos.map((project) => {
+                                            {visibleStaffProjects.map((project) => {
                                                 const selected = String(project.id) === selfForm.proyecto_id;
                                                 return (
                                                     <button
@@ -841,6 +854,11 @@ export default function StaffPage() {
                                             <div className="rounded-xl border border-dashed border-gray-700 bg-background-dark px-4 py-6 text-sm text-muted-dark text-center">
                                                 No hay proyectos disponibles para autoasignacion.
                                             </div>
+                                        )}
+                                        {!showAllStaffProjects && proyectos.length > visibleStaffProjects.length && (
+                                            <p className="text-xs text-muted-dark text-center">
+                                                Mostrando {visibleStaffProjects.length} de {proyectos.length} proyectos.
+                                            </p>
                                         )}
                                     </div>
 
