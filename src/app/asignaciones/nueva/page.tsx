@@ -108,6 +108,14 @@ function normalizeStatus(value: string | undefined) {
     return String(value || '').trim().toLowerCase();
 }
 
+function getProjectTypeLabel(tipo?: string) {
+    const normalized = String(tipo || '').trim().toLowerCase();
+    if (normalized === 'manga') return 'Manga';
+    if (normalized === 'manhwa') return 'Manhwa';
+    if (normalized === 'manhua') return 'Manhua';
+    return tipo ? String(tipo) : 'Proyecto';
+}
+
 function sortProjectsAlphabetically(projects: Proyecto[]) {
     return [...projects].sort((a, b) =>
         String(a?.titulo || '').localeCompare(String(b?.titulo || ''), 'es', { sensitivity: 'base' })
@@ -180,6 +188,7 @@ function NuevaAsignacionContent() {
     const [loading, setLoading] = useState(false);
     const [autoLoading, setAutoLoading] = useState(false);
     const [notice, setNotice] = useState<{ type: 'error' | 'info'; message: string } | null>(null);
+    const [projectTypeFilter, setProjectTypeFilter] = useState('all');
 
     const statusSummary = capitulos.reduce(
         (acc, item) => {
@@ -192,6 +201,17 @@ function NuevaAsignacionContent() {
     const summaryLabels = getSummaryLabels(formData.rol);
     const selectedProject = proyectos.find((p) => String(p.id) === String(formData.proyecto_id));
     const selectedUser = usuarios.find((u) => String(u.id) === String(formData.usuario_id));
+    const availableProjectTypes = Array.from(
+        new Set(
+            proyectos
+                .map((project) => String(project?.tipo || '').trim())
+                .filter(Boolean)
+        )
+    ).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+    const visibleProjects = proyectos.filter((project) => {
+        if (projectTypeFilter === 'all') return true;
+        return String(project?.tipo || '').trim().toLowerCase() === projectTypeFilter.toLowerCase();
+    });
     const selectedUserRoles = Array.isArray(selectedUser?.roles) ? selectedUser.roles : [];
     const selectedUserHasTradCore =
         selectedUserRoles.includes('Traductor')
@@ -333,8 +353,24 @@ function NuevaAsignacionContent() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setNotice(null);
+        if (!formData.proyecto_id) {
+            setNotice({ type: 'error', message: 'Selecciona un proyecto.' });
+            return;
+        }
+        if (!formData.usuario_id) {
+            setNotice({ type: 'error', message: 'Selecciona un miembro del staff.' });
+            return;
+        }
         if (!formData.rol) {
             setNotice({ type: 'error', message: 'Selecciona un rol para continuar.' });
+            return;
+        }
+        if (!formData.capitulo) {
+            setNotice({ type: 'error', message: 'Selecciona un capitulo.' });
+            return;
+        }
+        if (!formData.descripcion.trim()) {
+            setNotice({ type: 'error', message: 'Escribe una descripcion para la asignacion.' });
             return;
         }
 
@@ -452,17 +488,96 @@ function NuevaAsignacionContent() {
                     <form onSubmit={handleSubmit} className="space-y-6">
                         <div>
                             <label className="block text-xs font-bold text-muted-dark uppercase tracking-wider mb-2">Proyecto</label>
-                            <select
-                                value={formData.proyecto_id}
-                                onChange={(e) => setFormData((prev) => ({ ...prev, proyecto_id: e.target.value, capitulo: '', descripcion: '' }))}
-                                className="w-full bg-background-dark border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary"
-                                required
-                            >
-                                <option value="">Seleccionar proyecto...</option>
-                                {proyectos.map(p => (
-                                    <option key={p.id} value={String(p.id)}>{p.titulo}</option>
-                                ))}
-                            </select>
+                            <div className="space-y-3">
+                                {availableProjectTypes.length > 0 && (
+                                    <div className="flex flex-wrap justify-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setProjectTypeFilter('all')}
+                                            className={`px-3 py-2 rounded-lg border text-xs font-bold uppercase tracking-widest transition-colors ${projectTypeFilter === 'all'
+                                                ? 'bg-primary/10 border-primary text-primary'
+                                                : 'bg-background-dark border-gray-700 text-gray-300 hover:border-primary/50 hover:text-white'
+                                                }`}
+                                        >
+                                            Todos
+                                        </button>
+                                        {availableProjectTypes.map((type) => (
+                                            <button
+                                                key={type}
+                                                type="button"
+                                                onClick={() => setProjectTypeFilter(type)}
+                                                className={`px-3 py-2 rounded-lg border text-xs font-bold uppercase tracking-widest transition-colors ${projectTypeFilter.toLowerCase() === type.toLowerCase()
+                                                    ? 'bg-primary/10 border-primary text-primary'
+                                                    : 'bg-background-dark border-gray-700 text-gray-300 hover:border-primary/50 hover:text-white'
+                                                    }`}
+                                            >
+                                                {getProjectTypeLabel(type)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[24rem] overflow-y-auto pr-1">
+                                    {visibleProjects.map((project) => {
+                                        const selected = String(project.id) === String(formData.proyecto_id);
+                                        return (
+                                            <button
+                                                key={project.id}
+                                                type="button"
+                                                onClick={() => setFormData((prev) => ({
+                                                    ...prev,
+                                                    proyecto_id: String(project.id),
+                                                    capitulo: '',
+                                                    descripcion: '',
+                                                }))}
+                                                className={`group rounded-xl border p-3 text-left transition-all ${selected
+                                                    ? 'border-primary bg-primary/10 shadow-[0_0_20px_rgba(255,46,77,0.18)]'
+                                                    : 'border-gray-700 bg-background-dark hover:border-primary/50 hover:bg-surface-darker'
+                                                    }`}
+                                            >
+                                                <div className="flex gap-3">
+                                                    <div className="w-16 h-20 shrink-0 rounded-lg overflow-hidden border border-gray-700 bg-surface-darker">
+                                                        {project.imagen_url ? (
+                                                            <img src={project.imagen_url} alt={project.titulo} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-gray-500">
+                                                                <span className="material-icons-round">auto_stories</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <p className={`font-semibold leading-tight line-clamp-3 ${selected ? 'text-white' : 'text-gray-100'}`}>
+                                                                {project.titulo}
+                                                            </p>
+                                                            {selected && (
+                                                                <span className="material-icons-round text-primary text-lg shrink-0">check_circle</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2 mt-3">
+                                                            <span className="px-2 py-1 rounded-md bg-surface-dark border border-gray-700 text-[10px] uppercase tracking-wider text-gray-300 font-bold">
+                                                                {getProjectTypeLabel(project.tipo)}
+                                                            </span>
+                                                            <span className={`px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold ${normalizeStatus(project.estado) === 'activo'
+                                                                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                                                                : 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-300'
+                                                                }`}>
+                                                                {project.estado || 'Activo'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {visibleProjects.length === 0 && (
+                                    <div className="rounded-xl border border-dashed border-gray-700 bg-background-dark px-4 py-6 text-sm text-muted-dark text-center">
+                                        No hay proyectos disponibles para ese tipo.
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         {formData.proyecto_id && (
@@ -505,22 +620,39 @@ function NuevaAsignacionContent() {
                             <label className="block text-xs font-bold text-muted-dark uppercase tracking-wider mb-2">
                                 Rol / Tarea
                             </label>
-                            <select
-                                value={formData.rol}
-                                onChange={(e) => setFormData((prev) => ({ ...prev, rol: e.target.value, capitulo: '' }))}
-                                className="w-full bg-background-dark border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary"
-                                required
-                                disabled={rolesDisponiblesUsuario.length === 1}
-                            >
-                                <option value="">
-                                    {rolesDisponiblesUsuario.length > 1
-                                        ? 'Selecciona rol para este usuario...'
-                                        : 'Selecciona usuario primero...'}
-                                </option>
-                                {rolesDisponiblesUsuario.map(roleName => (
-                                    <option key={roleName} value={roleName}>{roleName}</option>
-                                ))}
-                            </select>
+                            <div className="flex flex-wrap justify-center gap-3">
+                                {rolesDisponiblesUsuario.length === 0 && (
+                                    <div className="w-full rounded-xl border border-dashed border-gray-700 bg-background-dark px-4 py-5 text-sm text-muted-dark text-center">
+                                        Selecciona usuario primero para ver roles disponibles.
+                                    </div>
+                                )}
+                                {rolesDisponiblesUsuario.map((roleName) => {
+                                    const selected = formData.rol === roleName;
+                                    const icon = roleName === 'Traductor' ? 'translate' : roleName === 'Redrawer' ? 'brush' : 'font_download';
+                                    const colorClass = roleName === 'Traductor'
+                                        ? 'text-cyan-300 border-cyan-500/40 bg-cyan-500/10'
+                                        : roleName === 'Redrawer'
+                                            ? 'text-orange-300 border-orange-500/40 bg-orange-500/10'
+                                            : 'text-violet-300 border-violet-500/40 bg-violet-500/10';
+
+                                    return (
+                                        <button
+                                            key={roleName}
+                                            type="button"
+                                            onClick={() => setFormData((prev) => ({ ...prev, rol: roleName, capitulo: '' }))}
+                                            className={`w-full sm:w-[200px] rounded-xl border px-4 py-4 text-center transition-all ${selected ? 'border-primary bg-primary/10 shadow-[0_0_18px_rgba(255,46,77,0.18)]' : `border-gray-700 bg-background-dark hover:border-primary/50 ${colorClass}`}`}
+                                        >
+                                            <div className="flex flex-col items-center justify-center gap-2">
+                                                <span className={`material-icons-round text-2xl ${selected ? 'text-primary' : ''}`}>{icon}</span>
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-widest text-muted-dark font-bold">Rol</p>
+                                                    <p className="text-white font-semibold mt-1">{roleName}</p>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                             {rolesDisponiblesUsuario.length > 1 && (
                                 <p className="text-xs text-muted-dark mt-2">Este usuario tiene varios roles, debes elegir con cual sortear.</p>
                             )}
@@ -554,16 +686,15 @@ function NuevaAsignacionContent() {
                                 required
                             >
                                 <option value="">Seleccionar capitulo...</option>
-                                {capitulos
-                                    .map(c => {
-                                        const isBlocked = c.status !== 'disponible' && !mostrarReasignar;
-                                        const statusLabel = getRoleAwareStatusLabel(c.status, formData.rol);
-                                        return (
-                                            <option key={c.numero} value={c.numero} disabled={isBlocked}>
-                                                [{statusLabel}] Capitulo {c.numero}
-                                            </option>
-                                        );
-                                    })}
+                                {capitulos.map((c) => {
+                                    const isBlocked = c.status !== 'disponible' && !mostrarReasignar;
+                                    const statusLabel = getRoleAwareStatusLabel(c.status, formData.rol);
+                                    return (
+                                        <option key={c.numero} value={c.numero} disabled={isBlocked}>
+                                            [{statusLabel}] Capitulo {c.numero}{c.asignado_a ? ` - @${c.asignado_a}` : ''}
+                                        </option>
+                                    );
+                                })}
                             </select>
                             <p className="text-xs text-muted-dark mt-2">
                                 {formData.rol
