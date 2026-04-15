@@ -14,12 +14,21 @@ const SocketContext = createContext<SocketContextType>({
   isConnected: false,
 });
 
+const SOCKET_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_SOCKET === '1' || process.env.NODE_ENV !== 'production';
+
 export function SocketProvider({ children }: { children: ReactNode }) {
   const { user, loading } = useUser();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
+    if (!SOCKET_ENABLED) {
+      setIsConnected(false);
+      setSocket(null);
+      return;
+    }
+
     if (loading) return;
 
     if (!user) {
