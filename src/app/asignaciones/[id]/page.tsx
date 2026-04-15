@@ -264,6 +264,7 @@ export default function DetalleAsignacion() {
     const deliveryPreviewUrl = toDrivePreviewUrl(currentDriveUrl);
     const selectedDeliveryImage = deliveryImages[selectedDeliveryImageIndex] || null;
     const shouldShowDeliveryReview = isPendingReview || (Boolean(isAdmin || isLeader) && !!currentDriveUrl);
+    const isTraductorReviewLayout = shouldShowDeliveryReview && isTraductor;
     const assignmentFontsItems = useMemo(() => projectFontsConfig.items, [projectFontsConfig.items]);
     const assignmentFontsSignature = assignmentFontsItems
         .map((item) => `${item.id}:${String(item.font_file_id || '').trim()}`)
@@ -823,8 +824,8 @@ export default function DetalleAsignacion() {
                     )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-surface-dark p-5 rounded-xl border border-gray-800 space-y-3">
+                <div className={isTraductorReviewLayout ? 'grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-5' : 'grid grid-cols-1 md:grid-cols-3 gap-6'}>
+                    <div className={`bg-surface-dark p-5 rounded-xl border border-gray-800 space-y-3 ${isTraductorReviewLayout ? 'xl:sticky xl:top-24 self-start' : ''}`}>
                         <p className="text-sm text-gray-300"><strong>Usuario:</strong> {asignacion.usuario_nombre}</p>
                         <p className="text-sm text-gray-300"><strong>Rol:</strong> {asignacion.rol}</p>
                         <p className="text-sm text-gray-300"><strong>Estado:</strong> {getDisplayStatus(asignacion)}</p>
@@ -921,7 +922,7 @@ export default function DetalleAsignacion() {
                         )}
                     </div>
 
-                    <div className="md:col-span-2 space-y-6">
+                    <div className={`${isTraductorReviewLayout ? 'space-y-5 min-w-0' : 'md:col-span-2 space-y-6'}`}>
                         <div className="bg-surface-dark p-5 rounded-xl border border-gray-800">
                             <h3 className="text-sm text-white mb-3">
                                 {isTraductor ? 'Visualizador de paginas (Drive)' : 'Drive'}
@@ -992,7 +993,7 @@ export default function DetalleAsignacion() {
                                     <iframe
                                         title="Vista previa entrega"
                                         src={deliveryPreviewUrl}
-                                        className="w-full h-[420px]"
+                                        className={isTraductorReviewLayout ? 'w-full h-[78vh] min-h-[620px]' : 'w-full h-[420px]'}
                                     />
                                 </div>
                             )}
