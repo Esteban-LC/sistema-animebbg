@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSidebar } from '@/context/SidebarContext';
 import { useSocket } from '@/context/SocketContext';
 import { useUser } from '@/context/UserContext';
+import { formatActivityDate } from '@/utils/date';
 
 interface Stats {
   total_asignaciones: number;
@@ -398,13 +399,21 @@ export default function Dashboard() {
                           {/* Header */}
                           <div className="flex justify-between items-start mb-2">
                             <div className="flex-1 min-w-0 pr-2">
-                              <h3 className="text-lg font-display font-bold text-white leading-tight mb-0.5 truncate">
+                              <h3 className="text-lg font-display font-bold text-white leading-tight mb-2 line-clamp-2">
                                 {asig.proyecto_titulo && asig.capitulo
                                   ? `${asig.proyecto_titulo} - Capitulo ${asig.capitulo}`
                                   : asig.descripcion}
                               </h3>
-                              <div className="text-xs text-muted-dark md:hidden">
-                                {getTimeAgo(asig.asignado_en)}
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                {asig.capitulo ? (
+                                  <span className="inline-flex items-center rounded-md border border-primary/30 bg-primary/10 px-2 py-1 font-bold uppercase tracking-wider text-primary">
+                                    Cap. {asig.capitulo}
+                                  </span>
+                                ) : null}
+                                <span className="inline-flex items-center gap-1 text-muted-dark">
+                                  <span className="material-icons-round text-[14px]">calendar_month</span>
+                                  {formatActivityDate(asig.asignado_en)}
+                                </span>
                               </div>
                             </div>
                             <span className={`hidden md:inline-flex px-3 py-1 text-xs font-bold rounded uppercase border shrink-0 ${asig.estado === 'Pendiente' ? 'bg-primary/10 text-primary border-primary/20' :
@@ -416,7 +425,7 @@ export default function Dashboard() {
                           </div>
 
                           {/* Info Grid (Mimicking 3 columns logic visually, though single row here) */}
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 border-t border-dashed border-gray-800 pt-3 md:border-none md:pt-0">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 border-t border-dashed border-gray-800 pt-3 md:border-none md:pt-0">
                             <div className="space-y-0.5">
                               <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded border w-fit ${getRoleClasses(asig.rol)}`}>
                                 <span className="material-icons-round text-[12px]">{getRoleIcon(asig.rol)}</span>
@@ -428,11 +437,16 @@ export default function Dashboard() {
                                 }`}>{asig.estado}</p>
                             </div>
 
-                            {/* Placeholder columns to match aesthetic if needed, or just show empty/other info */}
-                            <div className="space-y-0.5 opacity-50 hidden md:block">
-                              <span className="text-[10px] text-muted-dark uppercase font-bold tracking-wider">ROL</span>
-                              <p className="text-sm font-medium text-gray-400">---</p>
-                              <p className="text-sm font-medium text-gray-600">---</p>
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] text-muted-dark uppercase font-bold tracking-wider">Fecha</span>
+                              <p className="text-sm font-medium text-gray-300">{formatActivityDate(asig.asignado_en)}</p>
+                              <p className="text-sm font-medium text-gray-500">{getTimeAgo(asig.asignado_en)}</p>
+                            </div>
+
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] text-muted-dark uppercase font-bold tracking-wider">Capitulo</span>
+                              <p className="text-sm font-medium text-gray-300">{asig.capitulo ? `Cap. ${asig.capitulo}` : 'Sin numero'}</p>
+                              <p className="text-sm font-medium text-gray-500">{asig.proyecto_titulo ? 'Proyecto activo' : 'Asignacion general'}</p>
                             </div>
                           </div>
 
