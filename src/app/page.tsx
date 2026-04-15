@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSidebar } from '@/context/SidebarContext';
 import { useSocket } from '@/context/SocketContext';
 import { useUser } from '@/context/UserContext';
-import { getTimeAgoLocal, formatActivityDate } from '@/utils/date';
 
 interface Stats {
   total_asignaciones: number;
@@ -40,6 +39,9 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentAssignments, setRecentAssignments] = useState<Asignacion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Pendiente' | 'En Proceso' | 'Completado'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'Traductor' | 'Redrawer' | 'Typer'>('all');
 
   // ... (useEffect and helper functions remain unchanged)
 
@@ -97,6 +99,14 @@ export default function Dashboard() {
   };
   const safeStats = stats && !(stats as any).error ? stats : fallbackStatsFromAssignments;
   const groupLabel = String(user?.grupo_nombre || 'Mi Grupo').toUpperCase();
+  const filteredAssignments = useMemo(() => {
+    return recentAssignments.filter((item) => {
+      const matchesStatus = statusFilter === 'all' || item.estado === statusFilter;
+      const matchesRole = roleFilter === 'all' || item.rol === roleFilter;
+      return matchesStatus && matchesRole;
+    });
+  }, [recentAssignments, roleFilter, statusFilter]);
+  const hasActiveFilters = statusFilter !== 'all' || roleFilter !== 'all';
 
   const getRoleLabel = (role: string) => {
     if (role === 'Traductor') return 'TRADUCCIÓN';
@@ -137,6 +147,11 @@ export default function Dashboard() {
     }
   };
 
+  const clearFilters = () => {
+    setStatusFilter('all');
+    setRoleFilter('all');
+  };
+
   return (
     <>
       <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-background-dark">
@@ -156,7 +171,10 @@ export default function Dashboard() {
                 <span>Ranking</span>
               </button>
             </Link>
-            <button className="flex items-center gap-2 px-4 py-2 bg-surface-darker border border-gray-700 rounded-lg text-sm font-medium hover:border-primary transition-colors text-white hidden sm:flex">
+            <button
+              onClick={() => setShowFilters((prev) => !prev)}
+              className={`flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium transition-colors text-white hidden sm:flex ${showFilters || hasActiveFilters ? 'bg-primary/10 border-primary text-primary' : 'bg-surface-darker border-gray-700 hover:border-primary'}`}
+            >
               <span className="material-icons-round text-base">filter_list</span>
               <span>Filtros</span>
             </button>
@@ -303,9 +321,52 @@ export default function Dashboard() {
 
                 {/* Assignments List */}
                 <div className="space-y-4">
-                  <h2 className="text-lg font-bold uppercase tracking-wider text-muted-dark mb-2">Asignaciones Recientes</h2>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="text-lg font-bold uppercase tracking-wider text-muted-dark">Asignaciones Recientes</h2>
+                    {hasActiveFilters && (
+                      <button
+                        type="button"
+                        onClick={clearFilters}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-primary"
+                      >
+                        Limpiar filtros
+                      </button>
+                    )}
+                  </div>
 
-                  {recentAssignments.map((asig) => (
+                  {showFilters && (
+                    <div className="bg-surface-dark border border-gray-800 rounded-xl p-4 flex flex-col md:flex-row gap-4 md:items-end">
+                      <label className="flex flex-col gap-2">
+                        <span className="text-[10px] font-bold text-muted-dark uppercase tracking-widest">Estado</span>
+                        <select
+                          value={statusFilter}
+                          onChange={(e) => setStatusFilter(e.target.value as 'all' | 'Pendiente' | 'En Proceso' | 'Completado')}
+                          className="bg-surface-darker border border-gray-700 rounded-lg px-3 py-2 text-sm text-white min-w-44"
+                        >
+                          <option value="all">Todos</option>
+                          <option value="Pendiente">Pendientes</option>
+                          <option value="En Proceso">En proceso</option>
+                          <option value="Completado">Completados</option>
+                        </select>
+                      </label>
+
+                      <label className="flex flex-col gap-2">
+                        <span className="text-[10px] font-bold text-muted-dark uppercase tracking-widest">Rol</span>
+                        <select
+                          value={roleFilter}
+                          onChange={(e) => setRoleFilter(e.target.value as 'all' | 'Traductor' | 'Redrawer' | 'Typer')}
+                          className="bg-surface-darker border border-gray-700 rounded-lg px-3 py-2 text-sm text-white min-w-44"
+                        >
+                          <option value="all">Todos</option>
+                          <option value="Traductor">Traduccion</option>
+                          <option value="Redrawer">Limpieza</option>
+                          <option value="Typer">Typeo</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
+
+                  {filteredAssignments.map((asig) => (
                     <div key={asig.id} className="bg-surface-dark rounded-xl overflow-hidden shadow-lg border border-gray-800 flex flex-col md:flex-row relative group">
                       {/* Mobile Border Strip */}
                       <div className={`absolute left-0 top-0 bottom-0 w-1.5 md:hidden ${asig.estado === 'Pendiente' ? 'bg-primary' :
@@ -395,6 +456,13 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ))}
+
+                  {!filteredAssignments.length && (
+                    <div className="bg-surface-dark rounded-xl border border-gray-800 border-dashed p-10 text-center">
+                      <h3 className="text-lg font-bold text-white mb-2">Sin resultados</h3>
+                      <p className="text-muted-dark">No hay asignaciones recientes para esos filtros.</p>
+                    </div>
+                  )}
                 </div>
               </>
             )}
