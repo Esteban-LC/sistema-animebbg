@@ -31,14 +31,22 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Connect only after auth state is known and user is logged in.
-    const socketInstance = io();
+    // Keep retries small so a proxy/websocket issue does not hammer page load.
+    const socketInstance = io({
+      reconnectionAttempts: 2,
+      reconnectionDelay: 3000,
+      timeout: 5000,
+    });
 
     socketInstance.on('connect', () => {
       setIsConnected(true);
     });
 
     socketInstance.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    socketInstance.on('connect_error', () => {
       setIsConnected(false);
     });
 

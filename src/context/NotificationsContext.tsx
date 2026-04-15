@@ -15,7 +15,8 @@ interface NotificationsContextType {
 
 const NotificationsContext = createContext<NotificationsContextType | undefined>(undefined);
 const NOTIFICATION_SOUND_KEY = 'notification:sound:enabled';
-const REALTIME_SSE_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SSE === '1';
+const REALTIME_SSE_ENABLED =
+    process.env.NEXT_PUBLIC_ENABLE_SSE !== '0' && process.env.NODE_ENV === 'production';
 const NOTIFICATION_POLL_INTERVAL_MS = process.env.NODE_ENV === 'production' ? 300000 : 30000;
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {

@@ -4,7 +4,8 @@ import { getDb } from '@/lib/db';
 import { subscribeAssignmentEvent, subscribeNotificationEvent, subscribeProjectEvent, subscribeRankingEvent } from '@/lib/realtime';
 
 export const dynamic = 'force-dynamic';
-const REALTIME_SSE_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SSE === '1';
+const REALTIME_SSE_ENABLED =
+    process.env.NEXT_PUBLIC_ENABLE_SSE !== '0' && process.env.NODE_ENV === 'production';
 
 async function getSessionUserContext(db) {
     const token = (await cookies()).get('auth_token')?.value;
