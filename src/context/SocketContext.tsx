@@ -33,6 +33,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
     // Keep retries small so a proxy/websocket issue does not hammer page load.
     const socketInstance = io({
+      transports: ['polling'],
+      upgrade: false,
       reconnectionAttempts: 2,
       reconnectionDelay: 3000,
       timeout: 5000,
