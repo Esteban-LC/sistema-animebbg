@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { useUser } from '@/context/UserContext';
 
 interface SocketContextType {
   socket: Socket | null;
@@ -14,11 +15,23 @@ const SocketContext = createContext<SocketContextType>({
 });
 
 export function SocketProvider({ children }: { children: ReactNode }) {
+  const { user, loading } = useUser();
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    // Only connect once, the socket connects to the current host
+    if (loading) return;
+
+    if (!user) {
+      if (socket) {
+        socket.disconnect();
+        setSocket(null);
+      }
+      setIsConnected(false);
+      return;
+    }
+
+    // Connect only after auth state is known and user is logged in.
     const socketInstance = io();
 
     socketInstance.on('connect', () => {
@@ -34,7 +47,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     return () => {
       socketInstance.disconnect();
     };
-  }, []);
+  }, [loading, user]);
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>
