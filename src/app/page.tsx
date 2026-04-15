@@ -401,7 +401,7 @@ export default function Dashboard() {
                             <div className="flex-1 min-w-0 pr-2">
                               <h3 className="text-lg font-display font-bold text-white leading-tight mb-2 line-clamp-2">
                                 {asig.proyecto_titulo && asig.capitulo
-                                  ? `${asig.proyecto_titulo} - Capitulo ${asig.capitulo}`
+                                  ? asig.proyecto_titulo
                                   : asig.descripcion}
                               </h3>
                               <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -425,7 +425,7 @@ export default function Dashboard() {
                           </div>
 
                           {/* Info Grid (Mimicking 3 columns logic visually, though single row here) */}
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 border-t border-dashed border-gray-800 pt-3 md:border-none md:pt-0">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 border-t border-dashed border-gray-800 pt-3 md:border-none md:pt-0">
                             <div className="space-y-0.5">
                               <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded border w-fit ${getRoleClasses(asig.rol)}`}>
                                 <span className="material-icons-round text-[12px]">{getRoleIcon(asig.rol)}</span>
@@ -443,11 +443,6 @@ export default function Dashboard() {
                               <p className="text-sm font-medium text-gray-500">{getTimeAgo(asig.asignado_en)}</p>
                             </div>
 
-                            <div className="space-y-0.5">
-                              <span className="text-[10px] text-muted-dark uppercase font-bold tracking-wider">Capitulo</span>
-                              <p className="text-sm font-medium text-gray-300">{asig.capitulo ? `Cap. ${asig.capitulo}` : 'Sin numero'}</p>
-                              <p className="text-sm font-medium text-gray-500">{asig.proyecto_titulo ? 'Proyecto activo' : 'Asignacion general'}</p>
-                            </div>
                           </div>
 
                           {/* Report / Note */}
