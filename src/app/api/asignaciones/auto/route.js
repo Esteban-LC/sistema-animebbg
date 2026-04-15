@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { ensureAssignmentGroupSnapshotSchema, getDb } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, ensurePerformanceIndexes, getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { createNotification, notifyRoles } from '@/lib/notifications';
-import { getProjectCatalogEntries } from '@/lib/project-catalog';
+import { normalizeCatalogEntries } from '@/lib/project-catalog';
 import { publishAssignmentEvent } from '@/lib/realtime';
 
 const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Typer', 'Redrawer'];
@@ -154,6 +154,18 @@ async function countActiveAssignments(db, usuarioId) {
     return Number(row?.total || 0);
 }
 
+function parseProjectCatalogEntries(projectRow) {
+    try {
+        return normalizeCatalogEntries(JSON.parse(projectRow?.capitulos_catalogo || '[]'));
+    } catch {
+        return [];
+    }
+}
+
+function buildSqlPlaceholders(values) {
+    return values.map(() => '?').join(', ');
+}
+
 export async function POST(request) {
     try {
         const { usuario_id, proyecto_id, rol, traductor_tipo } = await request.json();
@@ -163,6 +175,7 @@ export async function POST(request) {
 
         const db = getDb();
         await ensureAssignmentGroupSnapshotSchema(db);
+        await ensurePerformanceIndexes(db);
         const traductorTipoColumnExists = await ensureTraductorTipoColumn(db);
         const cookieStore = await cookies();
         const token = cookieStore.get('auth_token')?.value;
@@ -285,24 +298,66 @@ export async function POST(request) {
             return NextResponse.json({ error: proyecto_id ? 'Proyecto no encontrado' : 'No hay proyectos disponibles' }, { status: 404 });
         }
 
-        const opciones = [];
-        for (const proyecto of proyectosBase) {
-            const activeUserShot = await db.prepare(`
-                SELECT id
+        const candidateProjectIds = proyectosBase.map((project) => Number(project.id)).filter((id) => Number.isFinite(id));
+        const candidatePlaceholders = buildSqlPlaceholders(candidateProjectIds);
+
+        const activeAssignmentRows = candidateProjectIds.length > 0
+            ? await db.prepare(`
+                SELECT proyecto_id
                 FROM asignaciones
                 WHERE usuario_id = ?
-                  AND proyecto_id = ?
                   AND rol = ?
                   AND capitulo IS NOT NULL
                   AND estado IN ('Pendiente', 'En Proceso')
-                LIMIT 1
-            `).get(usuario_id, proyecto.id, finalRole);
+                  AND proyecto_id IN (${candidatePlaceholders})
+            `).all(usuario_id, finalRole, ...candidateProjectIds)
+            : [];
+        const activeProjectIds = new Set((Array.isArray(activeAssignmentRows) ? activeAssignmentRows : []).map((row) => Number(row?.proyecto_id)));
 
-            if (activeUserShot) {
+        const roleAssignmentRows = candidateProjectIds.length > 0
+            ? await db.prepare(`
+                SELECT proyecto_id, capitulo, estado, drive_url
+                FROM asignaciones
+                WHERE proyecto_id IN (${candidatePlaceholders})
+                  AND rol = ?
+                  AND capitulo IS NOT NULL
+            `).all(...candidateProjectIds, finalRole)
+            : [];
+        const roleAssignmentsByProject = new Map();
+        for (const row of Array.isArray(roleAssignmentRows) ? roleAssignmentRows : []) {
+            const projectId = Number(row?.proyecto_id);
+            if (!Number.isFinite(projectId)) continue;
+            if (!roleAssignmentsByProject.has(projectId)) roleAssignmentsByProject.set(projectId, []);
+            roleAssignmentsByProject.get(projectId).push(row);
+        }
+
+        const typerPrereqRows = (String(finalRole) === 'Typer' && candidateProjectIds.length > 0)
+            ? await db.prepare(`
+                SELECT proyecto_id, capitulo, rol
+                FROM asignaciones
+                WHERE proyecto_id IN (${candidatePlaceholders})
+                  AND capitulo IS NOT NULL
+                  AND rol IN ('Traductor', 'Redrawer')
+                  AND estado = 'Completado'
+                  AND drive_url IS NOT NULL
+                  AND TRIM(drive_url) != ''
+            `).all(...candidateProjectIds)
+            : [];
+        const typerPrereqsByProject = new Map();
+        for (const row of Array.isArray(typerPrereqRows) ? typerPrereqRows : []) {
+            const projectId = Number(row?.proyecto_id);
+            if (!Number.isFinite(projectId)) continue;
+            if (!typerPrereqsByProject.has(projectId)) typerPrereqsByProject.set(projectId, []);
+            typerPrereqsByProject.get(projectId).push(row);
+        }
+
+        const opciones = [];
+        for (const proyecto of proyectosBase) {
+            if (activeProjectIds.has(Number(proyecto.id))) {
                 continue;
             }
 
-            const catalogoEntries = await getProjectCatalogEntries(db, proyecto);
+            const catalogoEntries = parseProjectCatalogEntries(proyecto);
             let catalogo = normalizeCatalog(catalogoEntries);
 
             if (catalogo.length === 0) {
@@ -319,22 +374,10 @@ export async function POST(request) {
                 continue;
             }
 
-            const usedChapters = await db.prepare(`
-                SELECT capitulo, estado
-                FROM asignaciones
-                WHERE proyecto_id = ? AND rol = ? AND capitulo IS NOT NULL
-            `).all(proyecto.id, finalRole);
-
-            const completedWithLinkRows = await db.prepare(`
-                SELECT capitulo, drive_url
-                FROM asignaciones
-                WHERE proyecto_id = ?
-                  AND rol = ?
-                  AND capitulo IS NOT NULL
-                  AND estado = 'Completado'
-                  AND drive_url IS NOT NULL
-                  AND TRIM(drive_url) != ''
-            `).all(proyecto.id, finalRole);
+            const usedChapters = roleAssignmentsByProject.get(Number(proyecto.id)) || [];
+            const completedWithLinkRows = usedChapters.filter((row) =>
+                row?.estado === 'Completado' && String(row?.drive_url || '').trim()
+            );
 
             const blocked = new Set(
                 usedChapters
@@ -374,16 +417,7 @@ export async function POST(request) {
 
             let elegibles = disponibles;
             if (String(finalRole) === 'Typer' && disponibles.length > 0) {
-                const prereqRows = await db.prepare(`
-                    SELECT capitulo, rol
-                    FROM asignaciones
-                    WHERE proyecto_id = ?
-                      AND capitulo IS NOT NULL
-                      AND rol IN ('Traductor', 'Redrawer')
-                      AND estado = 'Completado'
-                      AND drive_url IS NOT NULL
-                      AND TRIM(drive_url) != ''
-                `).all(proyecto.id);
+                const prereqRows = typerPrereqsByProject.get(Number(proyecto.id)) || [];
                 const typerReadyChapters = buildTyperPrereqSet(prereqRows);
                 const typerReadyByCatalog = buildTyperCatalogPrereqSet(catalogoEntries);
                 elegibles = disponibles.filter((chapter) => {

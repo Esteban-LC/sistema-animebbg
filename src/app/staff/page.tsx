@@ -50,6 +50,13 @@ interface PeriodStats {
     } | null;
 }
 
+interface RouletteAssignmentResult {
+    id: number;
+    proyecto_titulo?: string;
+    capitulo?: number;
+    rol?: string;
+}
+
 const ROLE_OPTIONS = ['Traductor', 'Redrawer', 'Typer'];
 const TRANSLATOR_ENG_ROLE = 'Traductor ENG';
 const TRANSLATOR_KO_ROLE = 'Traductor KO';
@@ -99,6 +106,11 @@ function getDisplayStatus(asignacion: Asignacion) {
     return asignacion.review_status === 'Pendiente' ? 'En Revision' : asignacion.estado;
 }
 
+function shortenWheelLabel(value: string, max = 18) {
+    const text = String(value || '').trim();
+    if (text.length <= max) return text;
+    return `${text.slice(0, max - 1)}…`;
+}
 
 export default function StaffPage() {
     const { user } = useUser();
@@ -124,6 +136,9 @@ export default function StaffPage() {
     });
     const [assigning, setAssigning] = useState(false);
     const [assignMode, setAssignMode] = useState<AssignMode>('normal');
+    const [rouletteSpinning, setRouletteSpinning] = useState(false);
+    const [rouletteRotation, setRouletteRotation] = useState(0);
+    const [rouletteResult, setRouletteResult] = useState<RouletteAssignmentResult | null>(null);
 
     // Solicitud de asignación para rango Nuevo
     const [solicitudRol, setSolicitudRol] = useState('');
@@ -158,6 +173,28 @@ export default function StaffPage() {
         Boolean(selfRoles.includes('Lider de Grupo') || user?.role === 'Lider de Grupo');
     const canUseStaffTasks = roleOptions.length > 0;
     const isLeaderOnly = isLeaderRole && !canUseStaffTasks;
+    const rouletteProjects = useMemo(() => {
+        const fallback = ['Proyecto 1', 'Proyecto 2', 'Proyecto 3', 'Proyecto 4', 'Proyecto 5', 'Proyecto 6'];
+        const labels = proyectos.slice(0, 8).map((project) => shortenWheelLabel(project.titulo));
+        return labels.length > 0 ? labels : fallback;
+    }, [proyectos]);
+    const translatorSubroleOptions = useMemo(() => {
+        const options: Array<{ value: 'ENG' | 'CORE'; label: string }> = [];
+        if (selfHasTradEng) {
+            options.push({ value: 'ENG', label: 'Traductor ENG' });
+        }
+        const canUseCoreOption = assignMode === 'ruleta' ? selfHasTradCore : canUseCoreTranslatorForSelf;
+        if (canUseCoreOption) {
+            options.push({ value: 'CORE', label: `Traductor ${coreTranslatorLabel}` });
+        }
+        return options;
+    }, [assignMode, selfHasTradEng, selfHasTradCore, canUseCoreTranslatorForSelf, coreTranslatorLabel]);
+    const resolvedTranslatorType =
+        translatorSubroleOptions.find((option) => option.value === selfForm.traductor_tipo)?.value
+        || translatorSubroleOptions[0]?.value
+        || selfForm.traductor_tipo;
+    const shouldShowTranslatorSubtypeSelect =
+        selfForm.rol === 'Traductor' && translatorSubroleOptions.length > 1;
 
     const fetchSolicitudStatus = async () => {
         try {
@@ -179,7 +216,7 @@ export default function StaffPage() {
 
         try {
             const query = new URLSearchParams({ rol, mode: 'next' });
-            if (rol === 'Traductor') query.set('traductor_tipo', selfForm.traductor_tipo || 'CORE');
+            if (rol === 'Traductor') query.set('traductor_tipo', resolvedTranslatorType || 'CORE');
             const res = await fetch(`/api/proyectos/${proyectoId}/capitulos?${query.toString()}`);
             const data = await res.json();
             const list = Array.isArray(data) ? data.filter((c: CapituloOption) => c.status === 'disponible') : [];
@@ -284,11 +321,9 @@ export default function StaffPage() {
             const next = { ...prev };
             let changed = false;
 
-            if (selfHasTradEng && !selfHasTradCore && prev.traductor_tipo !== 'ENG') {
-                next.traductor_tipo = 'ENG';
-                changed = true;
-            } else if (selfHasTradCore && !selfHasTradEng && prev.traductor_tipo !== 'CORE') {
-                next.traductor_tipo = 'CORE';
+            const singleTranslatorSubtype = translatorSubroleOptions.length === 1 ? translatorSubroleOptions[0].value : null;
+            if (singleTranslatorSubtype && prev.traductor_tipo !== singleTranslatorSubtype) {
+                next.traductor_tipo = singleTranslatorSubtype;
                 changed = true;
             }
 
@@ -302,15 +337,15 @@ export default function StaffPage() {
 
             return changed ? next : prev;
         });
-    }, [roleOptionsKey, selfHasTradCore, selfHasTradEng]);
+    }, [roleOptionsKey, translatorSubroleOptions]);
 
     useEffect(() => {
         if (isLeaderOnly) return;
         if (selfForm.rol !== 'Traductor') return;
 
         const currentType = selfForm.traductor_tipo;
-        const canUseEng = selfHasTradEng;
-        const canUseCore = selfHasTradCore && canUseCoreTranslatorForSelf;
+        const canUseEng = translatorSubroleOptions.some((option) => option.value === 'ENG');
+        const canUseCore = translatorSubroleOptions.some((option) => option.value === 'CORE');
 
         const currentIsValid =
             (currentType === 'ENG' && canUseEng)
@@ -325,7 +360,7 @@ export default function StaffPage() {
             if (prev.traductor_tipo === nextType) return prev;
             return { ...prev, traductor_tipo: nextType, capitulo: '' };
         });
-    }, [selfForm.rol, selfForm.traductor_tipo, canUseCoreTranslatorForSelf, selfHasTradCore, selfHasTradEng]);
+    }, [selfForm.rol, selfForm.traductor_tipo, translatorSubroleOptions]);
 
     useEffect(() => {
         if (!user || !isLeaderOnly) return;
@@ -386,7 +421,7 @@ export default function StaffPage() {
                     usuario_id: user.id,
                     proyecto_id: Number(selfForm.proyecto_id),
                     rol: selfForm.rol,
-                    traductor_tipo: selfForm.rol === 'Traductor' ? selfForm.traductor_tipo : null,
+                    traductor_tipo: selfForm.rol === 'Traductor' ? resolvedTranslatorType : null,
                     capitulo: Number(selfForm.capitulo),
                     descripcion,
                 }),
@@ -407,6 +442,11 @@ export default function StaffPage() {
     const handleSelfAssignRoulette = async () => {
         if (!user?.id || !selfForm.rol) return;
         setAssigning(true);
+        setRouletteSpinning(true);
+        setRouletteRotation((prev) => prev + 1440 + Math.floor(Math.random() * 360));
+        window.setTimeout(() => {
+            setRouletteSpinning(false);
+        }, 1150);
         try {
             const res = await fetch('/api/asignaciones/auto', {
                 method: 'POST',
@@ -414,7 +454,7 @@ export default function StaffPage() {
                 body: JSON.stringify({
                     usuario_id: user.id,
                     rol: selfForm.rol,
-                    traductor_tipo: selfForm.rol === 'Traductor' ? selfForm.traductor_tipo : undefined,
+                    traductor_tipo: selfForm.rol === 'Traductor' ? resolvedTranslatorType : undefined,
                 }),
             });
             const data = await res.json();
@@ -424,10 +464,17 @@ export default function StaffPage() {
             setSelfForm((prev) => ({ ...prev, proyecto_id: '', capitulo: '' }));
             setCapitulos([]);
             const proyectoLabel = data?.proyecto_titulo ? `${data.proyecto_titulo} - ` : '';
+            setRouletteResult({
+                id: Number(data?.id),
+                proyecto_titulo: data?.proyecto_titulo,
+                capitulo: Number(data?.capitulo),
+                rol: data?.rol || selfForm.rol,
+            });
             showToast(`Ruleta asigno ${proyectoLabel}capitulo ${data.capitulo}`, 'success');
         } catch (error: unknown) {
             showToast(getErrorMessage(error, 'Error'), 'error');
         } finally {
+            setRouletteSpinning(false);
             setAssigning(false);
         }
     };
@@ -577,16 +624,40 @@ export default function StaffPage() {
                                     </div>
                                 ) : (
                                     <>
-                                        <select
-                                            value={solicitudRol}
-                                            onChange={e => setSolicitudRol(e.target.value)}
-                                            className="w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white"
-                                        >
-                                            <option value="">Selecciona tu rol...</option>
-                                            {roleOptions.map(r => (
-                                                <option key={r} value={r}>{r}</option>
-                                            ))}
-                                        </select>
+                                        <div className="space-y-2">
+                                            <p className="text-[10px] font-bold text-muted-dark uppercase tracking-widest text-center">
+                                                Rol solicitado
+                                            </p>
+                                            <div className="flex flex-wrap justify-center gap-3">
+                                                {roleOptions.map((roleName) => {
+                                                    const isSelected = solicitudRol === roleName;
+                                                    return (
+                                                        <button
+                                                            key={roleName}
+                                                            type="button"
+                                                            onClick={() => setSolicitudRol(roleName)}
+                                                            className={`w-full sm:w-[200px] rounded-2xl border px-4 py-5 text-center transition-all ${
+                                                                isSelected
+                                                                    ? `${getRoleClasses(roleName)} shadow-lg scale-[1.01]`
+                                                                    : 'border-gray-700 bg-background-dark text-gray-300 hover:border-gray-500'
+                                                            }`}
+                                                        >
+                                                            <div className="flex flex-col items-center gap-2">
+                                                                <span className={`material-icons-round text-2xl ${isSelected ? '' : 'text-gray-400'}`}>
+                                                                    {getRoleIcon(roleName)}
+                                                                </span>
+                                                                <span className="text-[10px] font-bold uppercase tracking-[0.35em] text-muted-dark">
+                                                                    Rol
+                                                                </span>
+                                                                <span className="font-display text-lg text-white">
+                                                                    {roleName}
+                                                                </span>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
                                         <button
                                             onClick={handleSolicitudAsignacion}
                                             disabled={!solicitudRol || solicitudLoading}
@@ -656,52 +727,122 @@ export default function StaffPage() {
                                 </button>
                             </div>
 
-                            <select
-                                value={selfForm.rol}
-                                onChange={(e) => setSelfForm((prev) => ({ ...prev, rol: e.target.value, capitulo: '' }))}
-                                className={`bg-background-dark border rounded-lg px-3 py-2 text-white disabled:opacity-60 ${selfForm.rol ? getRoleClasses(selfForm.rol) : 'border-gray-700'}`}
-                                disabled={roleOptions.length === 1}
-                            >
-                                <option value="">Rol...</option>
-                                {roleOptions.map((r) => (
-                                    <option key={r} value={r}>{r}</option>
-                                ))}
-                            </select>
-                            <div className="flex gap-2 flex-wrap">
-                                {ROLE_OPTIONS.map((roleName) => (
-                                    <span key={roleName} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${getRoleClasses(roleName)}`}>
-                                        <span className="material-icons-round text-[12px]">{getRoleIcon(roleName)}</span>
-                                        {roleName}
-                                    </span>
-                                ))}
+                            <div className="space-y-2">
+                                <p className="text-[10px] font-bold text-muted-dark uppercase tracking-widest text-center">
+                                    Rol / Tarea
+                                </p>
+                                <div className="flex flex-wrap justify-center gap-3">
+                                    {roleOptions.map((roleName) => {
+                                        const isSelected = selfForm.rol === roleName;
+                                        return (
+                                            <button
+                                                key={roleName}
+                                                type="button"
+                                                onClick={() => setSelfForm((prev) => ({ ...prev, rol: roleName, capitulo: '' }))}
+                                                className={`w-full sm:w-[200px] rounded-2xl border px-4 py-5 text-center transition-all ${
+                                                    isSelected
+                                                        ? `${getRoleClasses(roleName)} shadow-lg scale-[1.01]`
+                                                        : 'border-gray-700 bg-background-dark text-gray-300 hover:border-gray-500'
+                                                }`}
+                                            >
+                                                <div className="flex flex-col items-center gap-2">
+                                                    <span className={`material-icons-round text-2xl ${isSelected ? '' : 'text-gray-400'}`}>
+                                                        {getRoleIcon(roleName)}
+                                                    </span>
+                                                    <span className="text-[10px] font-bold uppercase tracking-[0.35em] text-muted-dark">
+                                                        Rol
+                                                    </span>
+                                                    <span className="font-display text-lg text-white">
+                                                        {roleName}
+                                                    </span>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                            {selfForm.rol === 'Traductor' && (
+                            {shouldShowTranslatorSubtypeSelect && (
                                 <select
                                     value={selfForm.traductor_tipo}
                                     onChange={(e) => setSelfForm((prev) => ({ ...prev, traductor_tipo: e.target.value, capitulo: '' }))}
                                     className="bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white"
                                 >
-                                    <option value="ENG" disabled={!selfHasTradEng}>
-                                        Traductor ENG
-                                    </option>
-                                    <option value="CORE" disabled={!canUseCoreTranslatorForSelf}>
-                                        {`Traductor ${coreTranslatorLabel}`}
-                                    </option>
+                                    {translatorSubroleOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                            {option.label}
+                                        </option>
+                                    ))}
                                 </select>
+                            )}
+                            {selfForm.rol === 'Traductor' && translatorSubroleOptions.length === 0 && (
+                                <p className="text-[11px] text-red-300">
+                                    No tienes un subrol traductor compatible con este proyecto.
+                                </p>
                             )}
 
                             {assignMode === 'normal' && (
                                 <>
-                                    <select
-                                        value={selfForm.proyecto_id}
-                                        onChange={(e) => setSelfForm((prev) => ({ ...prev, proyecto_id: e.target.value }))}
-                                        className="bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white"
-                                    >
-                                        <option value="">Proyecto...</option>
-                                        {proyectos.map((p) => (
-                                            <option key={p.id} value={p.id}>{p.titulo}</option>
-                                        ))}
-                                    </select>
+                                    <div className="space-y-2">
+                                        <p className="text-[10px] font-bold text-muted-dark uppercase tracking-widest text-center">
+                                            Proyecto
+                                        </p>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {proyectos.map((project) => {
+                                                const selected = String(project.id) === selfForm.proyecto_id;
+                                                return (
+                                                    <button
+                                                        key={project.id}
+                                                        type="button"
+                                                        onClick={() => setSelfForm((prev) => ({ ...prev, proyecto_id: String(project.id), capitulo: '' }))}
+                                                        className={`rounded-xl border p-3 text-left transition-all ${
+                                                            selected
+                                                                ? 'border-primary bg-primary/10 shadow-[0_0_20px_rgba(255,46,77,0.18)]'
+                                                                : 'border-gray-700 bg-background-dark hover:border-primary/50 hover:bg-surface-darker'
+                                                        }`}
+                                                    >
+                                                        <div className="flex gap-3 items-start">
+                                                            <div className="w-14 h-18 shrink-0 rounded-lg overflow-hidden border border-gray-700 bg-surface-darker">
+                                                                {project.imagen_url ? (
+                                                                    <img src={project.imagen_url} alt={project.titulo} className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <div className="w-full h-full flex items-center justify-center text-gray-500">
+                                                                        <span className="material-icons-round">auto_stories</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <p className="font-semibold leading-tight line-clamp-3 text-white">
+                                                                        {project.titulo}
+                                                                    </p>
+                                                                    {selected && (
+                                                                        <span className="material-icons-round text-primary text-lg shrink-0">check_circle</span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex flex-wrap gap-2 mt-3">
+                                                                    <span className="px-2 py-1 rounded-md bg-surface-dark border border-gray-700 text-[10px] uppercase tracking-wider text-gray-300 font-bold">
+                                                                        {project.tipo || 'Proyecto'}
+                                                                    </span>
+                                                                    <span className={`px-2 py-1 rounded-md text-[10px] uppercase tracking-wider font-bold ${
+                                                                        normalizeStatus(project.estado) === 'activo'
+                                                                            ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                                                                            : 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-300'
+                                                                    }`}>
+                                                                        {project.estado || 'Activo'}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        {proyectos.length === 0 && (
+                                            <div className="rounded-xl border border-dashed border-gray-700 bg-background-dark px-4 py-6 text-sm text-muted-dark text-center">
+                                                No hay proyectos disponibles para autoasignacion.
+                                            </div>
+                                        )}
+                                    </div>
 
                                     <select
                                         value={selfForm.capitulo}
@@ -717,18 +858,85 @@ export default function StaffPage() {
                                 </>
                             )}
 
-                            <button
-                                onClick={assignMode === 'normal' ? handleSelfAssignNormal : handleSelfAssignRoulette}
-                                disabled={assigning || hasActiveSelfAssignment || (assignMode === 'normal'
-                                    ? (!selfForm.proyecto_id || !selfForm.rol || !selfForm.capitulo)
-                                    : !selfForm.rol)}
-                                className={`rounded-lg py-2.5 font-bold text-sm text-white disabled:opacity-50 ${assignMode === 'normal'
-                                    ? 'bg-primary hover:bg-primary-dark'
-                                    : 'bg-blue-600 hover:bg-blue-700'
-                                    }`}
-                            >
-                                {assignMode === 'normal' ? 'ASIGNAR' : 'LANZAR RULETA'}
-                            </button>
+                            {assignMode === 'ruleta' && (
+                                <div className="py-4">
+                                    <div className="flex justify-center">
+                                        <div className="relative w-full max-w-[360px] aspect-square">
+                                            <div className="absolute left-[-10px] top-1/2 -translate-y-1/2 z-20 text-blue-400 drop-shadow-[0_0_10px_rgba(59,130,246,0.45)]">
+                                                <span className="material-icons-round text-5xl">arrow_right_alt</span>
+                                            </div>
+                                            <div
+                                                className="relative w-full h-full rounded-full border-[10px] border-surface-darker shadow-[0_0_0_2px_rgba(255,255,255,0.04),0_20px_60px_rgba(0,0,0,0.35)] overflow-hidden"
+                                                style={{
+                                                    background: `conic-gradient(
+                                                        from -90deg,
+                                                        #0f172a 0deg 45deg,
+                                                        #3b0764 45deg 90deg,
+                                                        #052e16 90deg 135deg,
+                                                        #3f1d02 135deg 180deg,
+                                                        #3f0b1d 180deg 225deg,
+                                                        #082f49 225deg 270deg,
+                                                        #172554 270deg 315deg,
+                                                        #3f3f06 315deg 360deg
+                                                    )`,
+                                                    transform: `rotate(${rouletteRotation}deg)`,
+                                                    transition: rouletteSpinning
+                                                        ? 'transform 1100ms cubic-bezier(0.12, 0.82, 0.18, 1)'
+                                                        : 'transform 220ms ease-out',
+                                                }}
+                                            >
+                                                {rouletteProjects.map((label, index) => {
+                                                    const angle = (360 / rouletteProjects.length) * index;
+                                                    return (
+                                                        <div
+                                                            key={`${label}-${index}`}
+                                                            className="absolute left-1/2 top-1/2 w-[42%] origin-left"
+                                                            style={{ transform: `translateY(-50%) rotate(${angle}deg)` }}
+                                                        >
+                                                            <div className="pl-5 pr-2">
+                                                                <span
+                                                                    className="block text-[11px] sm:text-xs font-bold text-white/85 leading-tight"
+                                                                    style={{ transform: 'rotate(90deg)', transformOrigin: 'left center' }}
+                                                                >
+                                                                    {label}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+
+                                                <div className="absolute inset-[22%] rounded-full bg-surface-dark/95 border border-white/10 shadow-[0_0_0_6px_rgba(0,0,0,0.18)] flex items-center justify-center">
+                                                    <button
+                                                        onClick={handleSelfAssignRoulette}
+                                                        disabled={assigning || rouletteSpinning || hasActiveSelfAssignment || !selfForm.rol || (selfForm.rol === 'Traductor' && translatorSubroleOptions.length === 0)}
+                                                        className="w-[58%] aspect-square rounded-2xl bg-gradient-to-b from-sky-400 to-blue-600 text-white shadow-[0_18px_45px_rgba(37,99,235,0.4)] hover:scale-[1.02] transition-all disabled:opacity-50 disabled:hover:scale-100 flex flex-col items-center justify-center"
+                                                    >
+                                                        <span className="material-icons-round text-6xl sm:text-7xl leading-none">play_arrow</span>
+                                                        <span className="font-display text-xl sm:text-2xl uppercase tracking-wider -mt-1">
+                                                            {rouletteSpinning ? 'Girando...' : 'Iniciar'}
+                                                        </span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {assigning && (
+                                        <p className="mt-4 text-center text-sm text-blue-200">
+                                            Buscando un proyecto y capitulo disponible...
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {assignMode === 'normal' && (
+                                <button
+                                    onClick={handleSelfAssignNormal}
+                                    disabled={assigning || hasActiveSelfAssignment || !selfForm.proyecto_id || !selfForm.rol || !selfForm.capitulo || (selfForm.rol === 'Traductor' && translatorSubroleOptions.length === 0)}
+                                    className="rounded-lg py-2.5 font-bold text-sm text-white disabled:opacity-50 bg-primary hover:bg-primary-dark"
+                                >
+                                    ASIGNAR
+                                </button>
+                            )}
                         </div>
                         {hasActiveSelfAssignment && (
                             <p className="text-[11px] text-yellow-400 mt-2">
@@ -956,6 +1164,68 @@ export default function StaffPage() {
                     <span className="material-icons-round text-3xl">emoji_events</span>
                 </button>
             </Link>
+
+            {rouletteResult && (
+                <div className="fixed inset-0 z-[54] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="w-full max-w-lg rounded-[28px] border border-blue-500/25 bg-gradient-to-br from-surface-dark via-surface-dark to-[#151c2c] shadow-[0_28px_100px_rgba(0,0,0,0.5)] overflow-hidden">
+                        <div className="p-6 border-b border-blue-500/15 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_45%)]">
+                            <div className="flex items-start gap-4">
+                                <div className="w-14 h-14 rounded-2xl bg-blue-500/15 border border-blue-400/25 flex items-center justify-center shadow-[0_0_25px_rgba(59,130,246,0.18)] shrink-0">
+                                    <span className="material-icons-round text-blue-300 text-3xl">casino</span>
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-blue-300">Ruleta completada</p>
+                                    <h3 className="text-3xl font-display font-bold text-white mt-2 leading-tight">Esta es tu asignacion</h3>
+                                    <p className="text-sm text-gray-300 mt-3 max-w-md">
+                                        La ruleta ya eligio tu capitulo. Entra directo al detalle para revisarlo y marcarlo como en proceso.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-6 space-y-5">
+                            <div className="rounded-2xl border border-white/8 bg-black/15 p-4">
+                                <p className="text-lg text-white font-semibold leading-snug">
+                                    {rouletteResult.proyecto_titulo || 'Proyecto asignado'}
+                                </p>
+                                <div className="flex flex-wrap gap-2 mt-4">
+                                    <span className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-400/20 text-blue-200 text-xs font-bold uppercase tracking-wider">
+                                        <span className="material-icons-round text-base">bookmark</span>
+                                        Cap. {rouletteResult.capitulo || '-'}
+                                    </span>
+                                    <span className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-violet-500/10 border border-violet-400/20 text-violet-200 text-xs font-bold uppercase tracking-wider">
+                                        <span className="material-icons-round text-base">task_alt</span>
+                                        {rouletteResult.rol || selfForm.rol}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-gray-800 bg-background-dark/70 px-4 py-3">
+                                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-dark">Siguiente paso</p>
+                                <p className="text-sm text-gray-200 mt-2">
+                                    Abre la asignacion para revisar enlaces, archivos y cambiar el estado a <span className="text-blue-300 font-semibold">En Proceso</span>.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="p-6 pt-0 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <button
+                                onClick={() => {
+                                    router.push(`/asignaciones/${rouletteResult.id}?staff=1`);
+                                    setRouletteResult(null);
+                                }}
+                                className="w-full px-4 py-3.5 rounded-2xl font-bold text-white bg-gradient-to-r from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 transition-all shadow-[0_12px_30px_rgba(37,99,235,0.35)]"
+                            >
+                                Ir a asignacion
+                            </button>
+                            <button
+                                onClick={() => setRouletteResult(null)}
+                                className="w-full px-4 py-3.5 rounded-2xl font-bold text-white bg-background-dark border border-gray-700 hover:border-blue-400/35 transition-colors"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {completionTarget && (
                 <div className="fixed inset-0 z-[55] bg-black/80 flex items-center justify-center p-4">
