@@ -142,7 +142,6 @@ export default function StaffPage() {
     const [rouletteRotation, setRouletteRotation] = useState(0);
     const [rouletteResult, setRouletteResult] = useState<RouletteAssignmentResult | null>(null);
     const [showAllStaffProjects, setShowAllStaffProjects] = useState(false);
-    const [availableProjectsLoading, setAvailableProjectsLoading] = useState(false);
 
     // Solicitud de asignación para rango Nuevo
     const [solicitudRol, setSolicitudRol] = useState('');
@@ -280,6 +279,20 @@ export default function StaffPage() {
             fetchAsignaciones(),
             fetchPeriodStats(),
         ];
+        if (!isNuevo) {
+            tasks.push(
+                fetch('/api/proyectos')
+                    .then((r) => r.json())
+                    .then((d) => {
+                        const list = Array.isArray(d) ? d : [];
+                        const activos = list.filter((p: Proyecto) => !['pausado', 'cancelado'].includes(normalizeStatus(p.estado)));
+                        const scoped = user?.grupo_id
+                            ? activos.filter((p: Proyecto) => Number(p.grupo_id) === Number(user.grupo_id))
+                            : activos;
+                        setProyectos(scoped.length > 0 ? scoped : activos);
+                    }).catch(() => {})
+            );
+        }
         if (isNuevo) {
             tasks.push(
                 fetchSolicitudStatus()
@@ -379,85 +392,6 @@ export default function StaffPage() {
 
         fetchNextChapterOption(selfForm.proyecto_id, selfForm.rol);
     }, [assignMode, selfForm.proyecto_id, selfForm.rol, selfForm.traductor_tipo]);
-
-    useEffect(() => {
-        if (!user || isNuevo || isLeaderOnly) return;
-
-        if (!selfForm.rol) {
-            setProyectos([]);
-            setShowAllStaffProjects(false);
-            setAvailableProjectsLoading(false);
-            setSelfForm((prev) => (
-                prev.proyecto_id || prev.capitulo
-                    ? { ...prev, proyecto_id: '', capitulo: '' }
-                    : prev
-            ));
-            return;
-        }
-
-        if (selfForm.rol === 'Traductor' && translatorSubroleOptions.length === 0) {
-            setProyectos([]);
-            setShowAllStaffProjects(false);
-            setAvailableProjectsLoading(false);
-            setSelfForm((prev) => (
-                prev.proyecto_id || prev.capitulo
-                    ? { ...prev, proyecto_id: '', capitulo: '' }
-                    : prev
-            ));
-            return;
-        }
-
-        const query = new URLSearchParams({
-            usuario_id: String(user.id),
-            rol: selfForm.rol,
-        });
-        if (selfForm.rol === 'Traductor') {
-            query.set('traductor_tipo', resolvedTranslatorType || 'ENG');
-        }
-
-        let cancelled = false;
-        setProyectos([]);
-        setShowAllStaffProjects(false);
-        setAvailableProjectsLoading(true);
-
-        fetch(`/api/asignaciones/auto?${query.toString()}`)
-            .then((res) => res.json())
-            .then((data) => {
-                if (cancelled) return;
-                const list = Array.isArray(data?.projects) ? data.projects : [];
-                setProyectos(list);
-                setShowAllStaffProjects(false);
-                setSelfForm((prev) => {
-                    const stillValid = list.some((project: Proyecto) => String(project.id) === String(prev.proyecto_id));
-                    if (stillValid) return prev;
-                    if (!prev.proyecto_id && !prev.capitulo) return prev;
-                    return { ...prev, proyecto_id: '', capitulo: '' };
-                });
-            })
-            .catch(() => {
-                if (cancelled) return;
-                setProyectos([]);
-                setSelfForm((prev) => (
-                    prev.proyecto_id || prev.capitulo
-                        ? { ...prev, proyecto_id: '', capitulo: '' }
-                        : prev
-                ));
-            })
-            .finally(() => {
-                if (!cancelled) setAvailableProjectsLoading(false);
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        user?.id,
-        isNuevo,
-        isLeaderOnly,
-        selfForm.rol,
-        resolvedTranslatorType,
-        translatorSubroleOptions.length,
-    ]);
 
     const handleStatusUpdate = async (id: number, newStatus: string) => {
         setProcessingId(id);
@@ -859,7 +793,7 @@ export default function StaffPage() {
                                             <p className="text-[10px] font-bold text-muted-dark uppercase tracking-widest text-center flex-1">
                                                 Proyecto
                                             </p>
-                                            {proyectos.length > 6 && !availableProjectsLoading && (
+                                            {proyectos.length > 6 && (
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowAllStaffProjects((prev) => !prev)}
@@ -869,16 +803,8 @@ export default function StaffPage() {
                                                 </button>
                                             )}
                                         </div>
-                                        <p className="text-[11px] text-muted-dark text-center">
-                                            Solo se muestran obras de tu grupo con capitulos disponibles para este rol.
-                                        </p>
-                                        {availableProjectsLoading && (
-                                            <div className="rounded-xl border border-gray-700 bg-background-dark px-4 py-6 text-sm text-muted-dark text-center">
-                                                Buscando obras disponibles...
-                                            </div>
-                                        )}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                            {!availableProjectsLoading && visibleStaffProjects.map((project) => {
+                                            {visibleStaffProjects.map((project) => {
                                                 const selected = String(project.id) === selfForm.proyecto_id;
                                                 return (
                                                     <button
@@ -928,12 +854,12 @@ export default function StaffPage() {
                                                 );
                                             })}
                                         </div>
-                                        {!availableProjectsLoading && selfForm.rol && proyectos.length === 0 && (
+                                        {proyectos.length === 0 && (
                                             <div className="rounded-xl border border-dashed border-gray-700 bg-background-dark px-4 py-6 text-sm text-muted-dark text-center">
-                                                No hay obras con capitulos disponibles para este rol.
+                                                No hay proyectos disponibles para autoasignacion.
                                             </div>
                                         )}
-                                        {!availableProjectsLoading && !showAllStaffProjects && proyectos.length > visibleStaffProjects.length && (
+                                        {!showAllStaffProjects && proyectos.length > visibleStaffProjects.length && (
                                             <p className="text-xs text-muted-dark text-center">
                                                 Mostrando {visibleStaffProjects.length} de {proyectos.length} proyectos.
                                             </p>
