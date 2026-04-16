@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { ensureAssignmentGroupSnapshotSchema, ensurePerformanceIndexes, getDb } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { createNotification, notifyRoles } from '@/lib/notifications';
-import { normalizeCatalogEntries } from '@/lib/project-catalog';
+import { getProjectCatalogEntries, normalizeCatalogEntries } from '@/lib/project-catalog';
 import { publishAssignmentEvent } from '@/lib/realtime';
 
 const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Typer', 'Redrawer'];
@@ -166,83 +166,298 @@ function buildSqlPlaceholders(values) {
     return values.map(() => '?').join(', ');
 }
 
+async function resolveSessionAndUser(requestedUserId) {
+    const db = getDb();
+    await ensureAssignmentGroupSnapshotSchema(db);
+    await ensurePerformanceIndexes(db);
+    const traductorTipoColumnExists = await ensureTraductorTipoColumn(db);
+    const cookieStore = await cookies();
+    const token = cookieStore.get('auth_token')?.value;
+
+    if (!token) {
+        return { error: NextResponse.json({ error: 'No autorizado' }, { status: 401 }) };
+    }
+
+    const session = await db.prepare(`
+        SELECT s.usuario_id, u.roles, COALESCE(u.rango, 2) AS rango
+        FROM sessions s
+        JOIN usuarios u ON u.id = s.usuario_id
+        WHERE s.token = ? AND s.expires_at > datetime('now')
+    `).get(token);
+
+    if (!session) {
+        return { error: NextResponse.json({ error: 'Sesion invalida o expirada' }, { status: 401 }) };
+    }
+
+    let requesterRoles = [];
+    try {
+        requesterRoles = JSON.parse(session.roles || '[]');
+    } catch {
+        requesterRoles = [];
+    }
+
+    const isAdmin = requesterRoles.includes('Administrador');
+    const isLeader = requesterRoles.includes('Lider de Grupo');
+    const isSelfAssign = Number(session.usuario_id) === Number(requestedUserId);
+    const canAssign = isAdmin || isLeader || isSelfAssign;
+    if (!canAssign) {
+        return { error: NextResponse.json({ error: 'No tienes permisos para autoasignar a ese usuario' }, { status: 403 }) };
+    }
+
+    if (!isAdmin && !isLeader && Number(session.rango) < 2) {
+        return { error: NextResponse.json({ error: 'No tienes acceso a esta funcion todavia' }, { status: 403 }) };
+    }
+
+    const usuario = await db.prepare('SELECT id, roles, grupo_id FROM usuarios WHERE id = ?').get(requestedUserId);
+    if (!usuario) {
+        return { error: NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 }) };
+    }
+
+    let userRoles = [];
+    try {
+        userRoles = JSON.parse(usuario.roles || '[]');
+    } catch {
+        userRoles = [];
+    }
+
+    const hasTradCore = userRoles.includes('Traductor')
+        || userRoles.includes('Traductor KO')
+        || userRoles.includes('Traductor JAP')
+        || userRoles.includes('Traductor KO/JAP');
+    const hasTradEng = userRoles.includes('Traductor ENG');
+    const eligibleRoles = [];
+    if (hasTradCore || hasTradEng) eligibleRoles.push('Traductor');
+    if (userRoles.includes('Redrawer')) eligibleRoles.push('Redrawer');
+    if (userRoles.includes('Typer')) eligibleRoles.push('Typer');
+    if (eligibleRoles.length === 0) {
+        return { error: NextResponse.json({ error: 'El usuario no tiene roles productivos para asignar' }, { status: 400 }) };
+    }
+
+    return {
+        db,
+        session,
+        usuario,
+        traductorTipoColumnExists,
+        eligibleRoles,
+        hasTradCore,
+        hasTradEng,
+    };
+}
+
+async function findAvailableOptions({ db, usuario, finalRole, normalizedTraductorTipo, proyectoId = null, useLiveCatalog = false }) {
+    const catalogColumnExists = await hasCatalogColumn(db);
+    const driveFolderColumnExists = await hasDriveFolderColumn(db);
+    const secondaryRawColumnExists = await hasSecondaryRawColumn(db);
+    const groupScopedWhere = Number(usuario?.grupo_id) ? 'AND grupo_id = ?' : '';
+    const groupParams = Number(usuario?.grupo_id) ? [Number(usuario.grupo_id)] : [];
+
+    const proyectosBase = proyectoId
+        ? await db.prepare(`
+            SELECT id, titulo, imagen_url, estado, tipo, grupo_id, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
+                   ${driveFolderColumnExists ? 'drive_folder_id' : 'NULL as drive_folder_id'}
+            FROM proyectos
+            WHERE id = ?
+              AND LOWER(TRIM(COALESCE(estado, 'Activo'))) NOT IN ('pausado', 'cancelado')
+              ${groupScopedWhere}
+        `).all(proyectoId, ...groupParams)
+        : await db.prepare(`
+            SELECT id, titulo, imagen_url, estado, tipo, grupo_id, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
+                   ${driveFolderColumnExists ? 'drive_folder_id' : 'NULL as drive_folder_id'}
+            FROM proyectos
+            WHERE LOWER(TRIM(COALESCE(estado, 'Activo'))) NOT IN ('pausado', 'cancelado')
+              ${groupScopedWhere}
+        `).all(...groupParams);
+
+    if (!Array.isArray(proyectosBase) || proyectosBase.length === 0) {
+        return [];
+    }
+
+    const candidateProjectIds = proyectosBase.map((project) => Number(project.id)).filter((id) => Number.isFinite(id));
+    const candidatePlaceholders = buildSqlPlaceholders(candidateProjectIds);
+
+    const activeAssignmentRows = candidateProjectIds.length > 0
+        ? await db.prepare(`
+            SELECT proyecto_id
+            FROM asignaciones
+            WHERE usuario_id = ?
+              AND rol = ?
+              AND capitulo IS NOT NULL
+              AND estado IN ('Pendiente', 'En Proceso')
+              AND proyecto_id IN (${candidatePlaceholders})
+        `).all(usuario.id, finalRole, ...candidateProjectIds)
+        : [];
+    const activeProjectIds = new Set((Array.isArray(activeAssignmentRows) ? activeAssignmentRows : []).map((row) => Number(row?.proyecto_id)));
+
+    const roleAssignmentRows = candidateProjectIds.length > 0
+        ? await db.prepare(`
+            SELECT proyecto_id, capitulo, estado, drive_url
+            FROM asignaciones
+            WHERE proyecto_id IN (${candidatePlaceholders})
+              AND rol = ?
+              AND capitulo IS NOT NULL
+        `).all(...candidateProjectIds, finalRole)
+        : [];
+    const roleAssignmentsByProject = new Map();
+    for (const row of Array.isArray(roleAssignmentRows) ? roleAssignmentRows : []) {
+        const projectId = Number(row?.proyecto_id);
+        if (!Number.isFinite(projectId)) continue;
+        if (!roleAssignmentsByProject.has(projectId)) roleAssignmentsByProject.set(projectId, []);
+        roleAssignmentsByProject.get(projectId).push(row);
+    }
+
+    const typerPrereqRows = (String(finalRole) === 'Typer' && candidateProjectIds.length > 0)
+        ? await db.prepare(`
+            SELECT proyecto_id, capitulo, rol
+            FROM asignaciones
+            WHERE proyecto_id IN (${candidatePlaceholders})
+              AND capitulo IS NOT NULL
+              AND rol IN ('Traductor', 'Redrawer')
+              AND estado = 'Completado'
+              AND drive_url IS NOT NULL
+              AND TRIM(drive_url) != ''
+        `).all(...candidateProjectIds)
+        : [];
+    const typerPrereqsByProject = new Map();
+    for (const row of Array.isArray(typerPrereqRows) ? typerPrereqRows : []) {
+        const projectId = Number(row?.proyecto_id);
+        if (!Number.isFinite(projectId)) continue;
+        if (!typerPrereqsByProject.has(projectId)) typerPrereqsByProject.set(projectId, []);
+        typerPrereqsByProject.get(projectId).push(row);
+    }
+
+    const opciones = [];
+    for (const proyecto of proyectosBase) {
+        if (activeProjectIds.has(Number(proyecto.id))) continue;
+
+        const catalogoEntries = useLiveCatalog
+            ? await getProjectCatalogEntries(db, proyecto)
+            : parseProjectCatalogEntries(proyecto);
+        let catalogo = normalizeCatalog(catalogoEntries);
+
+        if (catalogo.length === 0) {
+            const maxInt = Math.floor(Number(proyecto.capitulos_totales || 0));
+            for (let i = 1; i <= maxInt; i += 1) catalogo.push(i);
+            if (Number(proyecto.capitulos_totales) > maxInt) {
+                catalogo.push(Number(proyecto.capitulos_totales));
+            }
+        }
+        if (catalogo.length === 0) continue;
+
+        const usedChapters = roleAssignmentsByProject.get(Number(proyecto.id)) || [];
+        const completedWithLinkRows = usedChapters.filter((row) => row?.estado === 'Completado' && String(row?.drive_url || '').trim());
+
+        const blocked = new Set(
+            usedChapters
+                .filter((row) => row.estado === 'Completado' || row.estado === 'Pendiente' || row.estado === 'En Proceso')
+                .map((row) => Number(row.capitulo))
+        );
+        const chapterEntryByNumber = new Map(catalogoEntries.map((entry) => [Number(entry.numero), entry]));
+        completedWithLinkRows.forEach((row) => {
+            const chapterNumber = Number(row.capitulo);
+            const chapterEntry = chapterEntryByNumber.get(chapterNumber);
+            if (!isRawCatalogSourceUrlForChapter(row.drive_url, chapterEntry)) {
+                blocked.add(chapterNumber);
+            }
+        });
+        catalogoEntries.forEach((entry) => {
+            if (getCatalogDeliveryUrlForRole(entry, finalRole)) {
+                blocked.add(Number(entry.numero));
+            }
+        });
+
+        let disponibles = catalogo.filter((chapter) => !blocked.has(Number(chapter))).sort((a, b) => Number(a) - Number(b));
+
+        if (String(finalRole) === 'Traductor') {
+            if (normalizedTraductorTipo === 'CORE' && Number(proyecto?.raw_secundario_activo || 0) !== 1) continue;
+            const byChapter = new Map(catalogoEntries.map((entry) => [Number(entry.numero), entry]));
+            disponibles = disponibles.filter((chapter) => {
+                const chapterEntry = byChapter.get(Number(chapter));
+                if (!chapterEntry) return true;
+                return isChapterAvailableForTraductorType(chapterEntry, normalizedTraductorTipo);
+            });
+        }
+
+        let elegibles = disponibles;
+        if (String(finalRole) === 'Typer' && disponibles.length > 0) {
+            const prereqRows = typerPrereqsByProject.get(Number(proyecto.id)) || [];
+            const typerReadyChapters = buildTyperPrereqSet(prereqRows);
+            const typerReadyByCatalog = buildTyperCatalogPrereqSet(catalogoEntries);
+            elegibles = disponibles.filter((chapter) => {
+                const chapterNumber = Number(chapter);
+                return typerReadyChapters.has(chapterNumber) || typerReadyByCatalog.has(chapterNumber);
+            });
+        }
+
+        if (elegibles.length === 0) continue;
+
+        const nextChapter = Number(elegibles[0]);
+        opciones.push({
+            proyecto,
+            capitulo: nextChapter,
+            available_count: elegibles.length,
+            driveUrlFromCatalog: getCatalogDeliveryUrlForRole(
+                catalogoEntries.find((entry) => Number(entry.numero) === nextChapter),
+                finalRole
+            ),
+        });
+    }
+
+    return opciones;
+}
+
+export async function GET(request) {
+    try {
+        const url = new URL(request.url);
+        const usuario_id = Number(url.searchParams.get('usuario_id') || 0);
+        const rol = String(url.searchParams.get('rol') || '');
+        const traductor_tipo = url.searchParams.get('traductor_tipo');
+        if (!usuario_id || !rol) {
+            return NextResponse.json({ error: 'usuario_id y rol son requeridos' }, { status: 400 });
+        }
+
+        const resolved = await resolveSessionAndUser(usuario_id);
+        if (resolved.error) return resolved.error;
+        const { db, usuario, eligibleRoles, hasTradCore, hasTradEng } = resolved;
+
+        if (!eligibleRoles.includes(rol)) {
+            return NextResponse.json({ error: `El usuario no tiene el rol ${rol}` }, { status: 400 });
+        }
+
+        let normalizedTraductorTipo = normalizeTraductorTipo(traductor_tipo);
+        if (rol === 'Traductor' && !traductor_tipo) {
+            if (hasTradEng && !hasTradCore) normalizedTraductorTipo = 'ENG';
+            if (!hasTradEng && hasTradCore) normalizedTraductorTipo = 'CORE';
+        }
+
+        const opciones = await findAvailableOptions({
+            db,
+            usuario,
+            finalRole: rol,
+            normalizedTraductorTipo,
+            useLiveCatalog: true,
+        });
+
+        return NextResponse.json({
+            projects: opciones.map((option) => ({
+                ...option.proyecto,
+                next_capitulo: option.capitulo,
+                available_count: option.available_count,
+            })),
+        });
+    } catch (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
 export async function POST(request) {
     try {
         const { usuario_id, proyecto_id, rol, traductor_tipo } = await request.json();
         if (!usuario_id) {
             return NextResponse.json({ error: 'usuario_id es requerido' }, { status: 400 });
         }
-
-        const db = getDb();
-        await ensureAssignmentGroupSnapshotSchema(db);
-        await ensurePerformanceIndexes(db);
-        const traductorTipoColumnExists = await ensureTraductorTipoColumn(db);
-        const cookieStore = await cookies();
-        const token = cookieStore.get('auth_token')?.value;
-
-        if (!token) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const session = await db.prepare(`
-            SELECT s.usuario_id, u.roles, COALESCE(u.rango, 2) AS rango
-            FROM sessions s
-            JOIN usuarios u ON u.id = s.usuario_id
-            WHERE s.token = ? AND s.expires_at > datetime('now')
-        `).get(token);
-
-        if (!session) {
-            return NextResponse.json({ error: 'Sesion invalida o expirada' }, { status: 401 });
-        }
-
-        let requesterRoles = [];
-        try {
-            requesterRoles = JSON.parse(session.roles || '[]');
-        } catch {
-            requesterRoles = [];
-        }
-
-        const isAdmin = requesterRoles.includes('Administrador');
-        const isLeader = requesterRoles.includes('Lider de Grupo');
-        const isSelfAssign = Number(session.usuario_id) === Number(usuario_id);
-        const canAssign = isAdmin || isLeader || isSelfAssign;
-        if (!canAssign) {
-            return NextResponse.json({ error: 'No tienes permisos para autoasignar a ese usuario' }, { status: 403 });
-        }
-
-        // Verificar rango: solo Staff (rango >= 2) puede usar autoasignacion
-        if (!isAdmin && !isLeader && Number(session.rango) < 2) {
-            return NextResponse.json({ error: 'No tienes acceso a esta funcion todavia' }, { status: 403 });
-        }
-
-        const catalogColumnExists = await hasCatalogColumn(db);
-        const driveFolderColumnExists = await hasDriveFolderColumn(db);
-        const secondaryRawColumnExists = await hasSecondaryRawColumn(db);
-
-        const usuario = await db.prepare('SELECT id, roles, grupo_id FROM usuarios WHERE id = ?').get(usuario_id);
-        if (!usuario) {
-            return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
-        }
-
-        let userRoles = [];
-        try {
-            userRoles = JSON.parse(usuario.roles || '[]');
-        } catch {
-            userRoles = [];
-        }
-
-        const hasTradCore = userRoles.includes('Traductor')
-            || userRoles.includes('Traductor KO')
-            || userRoles.includes('Traductor JAP')
-            || userRoles.includes('Traductor KO/JAP');
-        const hasTradEng = userRoles.includes('Traductor ENG');
-        const eligibleRoles = [];
-        if (hasTradCore || hasTradEng) eligibleRoles.push('Traductor');
-        if (userRoles.includes('Redrawer')) eligibleRoles.push('Redrawer');
-        if (userRoles.includes('Typer')) eligibleRoles.push('Typer');
-        if (eligibleRoles.length === 0) {
-            return NextResponse.json({ error: 'El usuario no tiene roles productivos para asignar' }, { status: 400 });
-        }
+        const resolved = await resolveSessionAndUser(usuario_id);
+        if (resolved.error) return resolved.error;
+        const { db, session, usuario, traductorTipoColumnExists, eligibleRoles, hasTradCore, hasTradEng } = resolved;
 
         let finalRole = rol;
         if (!finalRole) {
@@ -278,168 +493,14 @@ export async function POST(request) {
         if (activeAssignmentsCount >= 1) {
             return NextResponse.json({ error: 'Ya tienes una asignacion activa. Completa o libera la actual antes de tomar otra.' }, { status: 400 });
         }
-
-        const proyectosBase = proyecto_id
-            ? await db.prepare(`
-                SELECT id, titulo, estado, tipo, grupo_id, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
-                       ${driveFolderColumnExists ? 'drive_folder_id' : 'NULL as drive_folder_id'}
-                FROM proyectos
-                WHERE id = ?
-                  AND LOWER(TRIM(COALESCE(estado, 'Activo'))) NOT IN ('pausado', 'cancelado')
-            `).all(proyecto_id)
-            : await db.prepare(`
-                SELECT id, titulo, estado, tipo, grupo_id, ${secondaryRawColumnExists ? 'raw_secundario_activo' : '0 as raw_secundario_activo'}, capitulos_totales, ${catalogColumnExists ? 'capitulos_catalogo' : 'NULL as capitulos_catalogo'},
-                       ${driveFolderColumnExists ? 'drive_folder_id' : 'NULL as drive_folder_id'}
-                FROM proyectos
-                WHERE LOWER(TRIM(COALESCE(estado, 'Activo'))) NOT IN ('pausado', 'cancelado')
-            `).all();
-
-        if (!Array.isArray(proyectosBase) || proyectosBase.length === 0) {
-            return NextResponse.json({ error: proyecto_id ? 'Proyecto no encontrado' : 'No hay proyectos disponibles' }, { status: 404 });
-        }
-
-        const candidateProjectIds = proyectosBase.map((project) => Number(project.id)).filter((id) => Number.isFinite(id));
-        const candidatePlaceholders = buildSqlPlaceholders(candidateProjectIds);
-
-        const activeAssignmentRows = candidateProjectIds.length > 0
-            ? await db.prepare(`
-                SELECT proyecto_id
-                FROM asignaciones
-                WHERE usuario_id = ?
-                  AND rol = ?
-                  AND capitulo IS NOT NULL
-                  AND estado IN ('Pendiente', 'En Proceso')
-                  AND proyecto_id IN (${candidatePlaceholders})
-            `).all(usuario_id, finalRole, ...candidateProjectIds)
-            : [];
-        const activeProjectIds = new Set((Array.isArray(activeAssignmentRows) ? activeAssignmentRows : []).map((row) => Number(row?.proyecto_id)));
-
-        const roleAssignmentRows = candidateProjectIds.length > 0
-            ? await db.prepare(`
-                SELECT proyecto_id, capitulo, estado, drive_url
-                FROM asignaciones
-                WHERE proyecto_id IN (${candidatePlaceholders})
-                  AND rol = ?
-                  AND capitulo IS NOT NULL
-            `).all(...candidateProjectIds, finalRole)
-            : [];
-        const roleAssignmentsByProject = new Map();
-        for (const row of Array.isArray(roleAssignmentRows) ? roleAssignmentRows : []) {
-            const projectId = Number(row?.proyecto_id);
-            if (!Number.isFinite(projectId)) continue;
-            if (!roleAssignmentsByProject.has(projectId)) roleAssignmentsByProject.set(projectId, []);
-            roleAssignmentsByProject.get(projectId).push(row);
-        }
-
-        const typerPrereqRows = (String(finalRole) === 'Typer' && candidateProjectIds.length > 0)
-            ? await db.prepare(`
-                SELECT proyecto_id, capitulo, rol
-                FROM asignaciones
-                WHERE proyecto_id IN (${candidatePlaceholders})
-                  AND capitulo IS NOT NULL
-                  AND rol IN ('Traductor', 'Redrawer')
-                  AND estado = 'Completado'
-                  AND drive_url IS NOT NULL
-                  AND TRIM(drive_url) != ''
-            `).all(...candidateProjectIds)
-            : [];
-        const typerPrereqsByProject = new Map();
-        for (const row of Array.isArray(typerPrereqRows) ? typerPrereqRows : []) {
-            const projectId = Number(row?.proyecto_id);
-            if (!Number.isFinite(projectId)) continue;
-            if (!typerPrereqsByProject.has(projectId)) typerPrereqsByProject.set(projectId, []);
-            typerPrereqsByProject.get(projectId).push(row);
-        }
-
-        const opciones = [];
-        for (const proyecto of proyectosBase) {
-            if (activeProjectIds.has(Number(proyecto.id))) {
-                continue;
-            }
-
-            const catalogoEntries = parseProjectCatalogEntries(proyecto);
-            let catalogo = normalizeCatalog(catalogoEntries);
-
-            if (catalogo.length === 0) {
-                const maxInt = Math.floor(Number(proyecto.capitulos_totales || 0));
-                for (let i = 1; i <= maxInt; i += 1) {
-                    catalogo.push(i);
-                }
-                if (Number(proyecto.capitulos_totales) > maxInt) {
-                    catalogo.push(Number(proyecto.capitulos_totales));
-                }
-            }
-
-            if (catalogo.length === 0) {
-                continue;
-            }
-
-            const usedChapters = roleAssignmentsByProject.get(Number(proyecto.id)) || [];
-            const completedWithLinkRows = usedChapters.filter((row) =>
-                row?.estado === 'Completado' && String(row?.drive_url || '').trim()
-            );
-
-            const blocked = new Set(
-                usedChapters
-                    .filter((row) => row.estado === 'Completado' || row.estado === 'Pendiente' || row.estado === 'En Proceso')
-                    .map((row) => Number(row.capitulo))
-            );
-            const chapterEntryByNumber = new Map(catalogoEntries.map((entry) => [Number(entry.numero), entry]));
-            completedWithLinkRows.forEach((row) => {
-                const chapterNumber = Number(row.capitulo);
-                const chapterEntry = chapterEntryByNumber.get(chapterNumber);
-                if (!isRawCatalogSourceUrlForChapter(row.drive_url, chapterEntry)) {
-                    blocked.add(chapterNumber);
-                }
-            });
-            catalogoEntries.forEach((entry) => {
-                if (getCatalogDeliveryUrlForRole(entry, finalRole)) {
-                    blocked.add(Number(entry.numero));
-                }
-            });
-
-            let disponibles = catalogo
-                .filter((chapter) => !blocked.has(Number(chapter)))
-                .sort((a, b) => Number(a) - Number(b));
-
-            if (String(finalRole) === 'Traductor') {
-                if (normalizedTraductorTipo === 'CORE' && Number(proyecto?.raw_secundario_activo || 0) !== 1) {
-                    continue;
-                }
-                const byChapter = new Map(catalogoEntries.map((entry) => [Number(entry.numero), entry]));
-                const filteredByVariant = disponibles.filter((chapter) => {
-                    const chapterEntry = byChapter.get(Number(chapter));
-                    if (!chapterEntry) return true;
-                    return isChapterAvailableForTraductorType(chapterEntry, normalizedTraductorTipo);
-                });
-                disponibles = filteredByVariant;
-            }
-
-            let elegibles = disponibles;
-            if (String(finalRole) === 'Typer' && disponibles.length > 0) {
-                const prereqRows = typerPrereqsByProject.get(Number(proyecto.id)) || [];
-                const typerReadyChapters = buildTyperPrereqSet(prereqRows);
-                const typerReadyByCatalog = buildTyperCatalogPrereqSet(catalogoEntries);
-                elegibles = disponibles.filter((chapter) => {
-                    const chapterNumber = Number(chapter);
-                    return typerReadyChapters.has(chapterNumber) || typerReadyByCatalog.has(chapterNumber);
-                });
-            }
-
-            if (elegibles.length === 0) {
-                continue;
-            }
-
-            const nextChapter = Number(elegibles[0]);
-            opciones.push({
-                proyecto,
-                capitulo: nextChapter,
-                driveUrlFromCatalog: getCatalogDeliveryUrlForRole(
-                    catalogoEntries.find((entry) => Number(entry.numero) === nextChapter),
-                    finalRole
-                ),
-            });
-        }
+        const opciones = await findAvailableOptions({
+            db,
+            usuario,
+            finalRole,
+            normalizedTraductorTipo,
+            proyectoId: proyecto_id || null,
+            useLiveCatalog: false,
+        });
 
         if (opciones.length === 0) {
             return NextResponse.json({ error: 'No hay proyectos/capitulos disponibles para autoasignar en este rol' }, { status: 400 });
