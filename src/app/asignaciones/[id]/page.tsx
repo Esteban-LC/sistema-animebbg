@@ -33,6 +33,7 @@ interface Asignacion {
     review_comment?: string | null;
     review_requested_at?: string | null;
     review_decision_at?: string | null;
+    proyecto_fuentes_config?: unknown;
 }
 
 interface DriveImageItem {
@@ -208,7 +209,7 @@ export default function DetalleAsignacion() {
     const dragState = useRef<{ dragging: boolean; startX: number; startY: number; origX: number; origY: number }>({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 });
     const touchStartX = useRef(0);
     const [isSymbolsGuideOpen, setIsSymbolsGuideOpen] = useState(true);
-    const [isTyperGuideOpen, setIsTyperGuideOpen] = useState(true);
+    const [isTyperGuideOpen, setIsTyperGuideOpen] = useState(false);
     const [projectFontsConfig, setProjectFontsConfig] = useState<ProjectFontsConfig>(DEFAULT_PROJECT_FONTS_CONFIG);
     const [assignmentFontFamilies, setAssignmentFontFamilies] = useState<Record<string, string>>({});
 
@@ -439,29 +440,12 @@ export default function DetalleAsignacion() {
     }, [hasCoreRaw, hasEngRaw, isTraductor, asignacion?.traductor_tipo, asignacion?.id]);
 
     useEffect(() => {
-        if (!isTyperInProgress || !asignacion?.proyecto_id) {
+        if (!isTyperInProgress) {
             setProjectFontsConfig(DEFAULT_PROJECT_FONTS_CONFIG);
             return;
         }
-
-        let active = true;
-        fetch('/api/proyectos')
-            .then(async (res) => {
-                const data = await res.json().catch(() => []);
-                if (!res.ok || !Array.isArray(data)) return null;
-                return data.find((item: { id?: number; fuentes_config?: unknown }) => Number(item?.id) === Number(asignacion?.proyecto_id)) || null;
-            })
-            .then((project) => {
-                if (!active) return;
-                setProjectFontsConfig(normalizeProjectFontsConfig(project?.fuentes_config));
-            })
-            .catch(() => {
-                if (!active) return;
-                setProjectFontsConfig(DEFAULT_PROJECT_FONTS_CONFIG);
-            });
-
-        return () => { active = false; };
-    }, [isTyperInProgress, asignacion?.proyecto_id]);
+        setProjectFontsConfig(normalizeProjectFontsConfig(asignacion?.proyecto_fuentes_config ?? null));
+    }, [isTyperInProgress, asignacion?.proyecto_fuentes_config]);
 
     useEffect(() => {
         if (!isTyperInProgress) {
@@ -1278,34 +1262,23 @@ export default function DetalleAsignacion() {
                                         onClick={() => setIsTyperGuideOpen((prev) => !prev)}
                                         className="w-full flex items-center justify-between text-left"
                                     >
-                                        <h4 className="text-sm md:text-base tracking-[0.18em] uppercase text-white font-bold">
-                                            {projectFontsConfig.titulo || 'Guia de Tipografias'}
-                                        </h4>
-                                        <span className={`material-icons-round text-gray-400 text-base transition-transform ${isTyperGuideOpen ? 'rotate-180' : ''}`}>
+                                        <div className="min-w-0">
+                                            <h4 className="text-sm md:text-base tracking-[0.18em] uppercase text-white font-bold">
+                                                {projectFontsConfig.titulo || 'Guia de Tipografias'}
+                                            </h4>
+                                            {!isTyperGuideOpen && (
+                                                <p className="text-[10px] text-gray-500 mt-0.5">
+                                                    ¿No tienes las fuentes? Abre para descargarlas
+                                                </p>
+                                            )}
+                                        </div>
+                                        <span className={`material-icons-round text-gray-400 text-base transition-transform shrink-0 ${isTyperGuideOpen ? 'rotate-180' : ''}`}>
                                             expand_more
                                         </span>
                                     </button>
 
                                     {isTyperGuideOpen && (
                                         <div className="mt-4">
-                                            {!isTraductor && !isRedrawer && (
-                                            <a
-                                                href={projectFontsConfig.fuentes_drive_url || currentDriveUrl || '#'}
-                                                target={(projectFontsConfig.fuentes_drive_url || currentDriveUrl) ? '_blank' : undefined}
-                                                rel={(projectFontsConfig.fuentes_drive_url || currentDriveUrl) ? 'noreferrer' : undefined}
-                                                className={`rounded-xl border p-3 mb-5 flex items-center justify-between gap-3 ${(projectFontsConfig.fuentes_drive_url || currentDriveUrl)
-                                                    ? 'border-gray-700 bg-white/[0.02] hover:bg-white/[0.04]'
-                                                    : 'border-gray-800 bg-white/[0.01] cursor-not-allowed opacity-70'
-                                                    }`}
-                                            >
-                                                <div className="min-w-0">
-                                                    <p className="text-white font-semibold text-sm">Ir al Drive</p>
-                                                    <p className="text-[10px] md:text-xs uppercase tracking-[0.12em] text-gray-500">Fuentes</p>
-                                                </div>
-                                                <span className="material-icons-round text-gray-400">arrow_forward</span>
-                                            </a>
-                                            )}
-
                                             <p className="text-[10px] md:text-xs uppercase tracking-[0.16em] text-gray-500 font-semibold mb-3">
                                                 Catalogo Visual
                                             </p>
@@ -1318,6 +1291,16 @@ export default function DetalleAsignacion() {
                                                                 <p className="text-white font-bold text-sm truncate">{font.nombre}</p>
                                                                 <p className="text-[10px] md:text-xs text-gray-400 truncate">{font.para}</p>
                                                             </div>
+                                                            {font.font_file_id && (
+                                                                <a
+                                                                    href={`/api/drive/font?id=${encodeURIComponent(font.font_file_id)}&download=1`}
+                                                                    download={font.nombre}
+                                                                    className="shrink-0 flex items-center gap-1 rounded-lg border border-gray-700 bg-white/[0.03] hover:bg-white/[0.07] px-2 py-1 text-[10px] uppercase tracking-[0.1em] text-gray-300 transition-colors"
+                                                                    title={`Descargar ${font.nombre}`}
+                                                                >
+                                                                    <span className="material-icons-round text-sm">download</span>
+                                                                </a>
+                                                            )}
                                                         </div>
                                                         <div className="px-3 py-5 bg-black/35 text-center">
                                                             <p

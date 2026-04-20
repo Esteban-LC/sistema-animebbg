@@ -33,11 +33,16 @@ export async function GET(request) {
             return NextResponse.json({ error: 'No se pudo obtener la fuente de Drive' }, { status: 404 });
         }
 
+        const { searchParams: sp } = new URL(request.url);
+        const forDownload = sp.get('download') === '1';
+        const fileName = String(meta?.name || 'font').replace(/[^\w.\-]/g, '_');
+
         return new NextResponse(content.buffer, {
             status: 200,
             headers: {
                 'Content-Type': inferFontContentType(meta?.name, content.contentType),
                 'Cache-Control': 'private, max-age=300',
+                ...(forDownload ? { 'Content-Disposition': `attachment; filename="${fileName}"` } : {}),
             },
         });
     } catch (error) {

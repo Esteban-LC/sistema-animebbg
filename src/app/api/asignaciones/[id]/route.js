@@ -192,7 +192,7 @@ async function getAsignacionDetalle(db, id, hasTraductorTipoColumn) {
 
     if (!asignacion) return null;
     const proyecto = await db.prepare(`
-        SELECT id, tipo, capitulos_catalogo, drive_folder_id, raw_folder_id, raw_eng_folder_id, traductor_folder_id, redraw_folder_id, typer_folder_id
+        SELECT id, tipo, capitulos_catalogo, drive_folder_id, raw_folder_id, raw_eng_folder_id, traductor_folder_id, redraw_folder_id, typer_folder_id, fuentes_config
         FROM proyectos
         WHERE id = ?
     `).get(asignacion.proyecto_id);
@@ -200,12 +200,20 @@ async function getAsignacionDetalle(db, id, hasTraductorTipoColumn) {
     const match = entries.find((item) => Number(item.numero) === Number(asignacion.capitulo));
     const linkedDriveUrl = getCatalogUrlForRole(match, asignacion.rol);
 
+    let proyecto_fuentes_config = null;
+    try {
+        proyecto_fuentes_config = proyecto?.fuentes_config ? JSON.parse(proyecto.fuentes_config) : null;
+    } catch {
+        proyecto_fuentes_config = null;
+    }
+
     return {
         ...asignacion,
         drive_url: asignacion.drive_url || linkedDriveUrl || null,
         raw_url: String(match?.url || ''),
         raw_eng_url: String(match?.raw_eng_url || ''),
         core_raw_label: getCoreRawLabelByProjectType(asignacion?.proyecto_tipo || proyecto?.tipo),
+        proyecto_fuentes_config,
     };
 }
 
