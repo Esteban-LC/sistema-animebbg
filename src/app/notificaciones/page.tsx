@@ -174,13 +174,6 @@ export default function NotificacionesPage() {
                                 <p className="text-white font-bold text-xl">{unread} sin leer</p>
                             </div>
                             <div className="hidden md:flex items-center gap-3">
-                                <button
-                                    onClick={markAllRead}
-                                    disabled={processingId !== null || unread === 0}
-                                    className="px-3 py-2 text-xs md:text-sm rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-primary disabled:opacity-50"
-                                >
-                                    Marcar todo como leido
-                                </button>
                                 <span className="material-icons-round text-primary text-3xl">notifications</span>
                             </div>
                             <span className="material-icons-round text-primary text-3xl md:hidden">notifications</span>
