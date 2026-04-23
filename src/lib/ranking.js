@@ -1,6 +1,7 @@
-import { ensureAssignmentGroupSnapshotSchema } from '@/lib/db';
+import { ensureAssignmentGroupSnapshotSchema, ensureCompletedAssignmentTimestamps } from '@/lib/db';
 import { createNotification } from '@/lib/notifications';
 import { publishRankingEvent } from '@/lib/realtime';
+import { getMexicoCityDatetime } from '@/lib/time';
 
 function hasTimeComponent(value) {
     return typeof value === 'string' && value.length > 10;
@@ -23,7 +24,7 @@ function toDateEnd(value) {
 }
 
 function getCurrentDatetime() {
-    return new Date().toISOString().slice(0, 19).replace('T', ' ');
+    return getMexicoCityDatetime();
 }
 
 function getCurrentMonthRange() {
@@ -158,6 +159,7 @@ export async function getOfficialRankingRange(db) {
 
 export async function computeRankingForScope(db, { start, end, groupId = null, limit = 50 }) {
     await ensureAssignmentGroupSnapshotSchema(db);
+    await ensureCompletedAssignmentTimestamps(db);
     const useGroupFilter = groupId !== null && groupId !== undefined;
     const groupClause = useGroupFilter ? 'AND COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?' : '';
     const query = `
@@ -292,7 +294,7 @@ async function notifyTopChanges(db, previousPositions, currentRows) {
     }
 }
 
-async function finalizeSeasonIfClosed(db, { start, end, groupId, forceFinalize = false }) {
+async function finalizeSeasonIfClosed(db, { start, end, groupId, forceFinalize = false, notifyFinalResults = true }) {
     const isClosed = forceFinalize || toDateEnd(end) < getCurrentDatetime();
     if (!isClosed) return null;
 
@@ -351,7 +353,7 @@ async function finalizeSeasonIfClosed(db, { start, end, groupId, forceFinalize =
             FROM ranking_final_notified
             WHERE season_key = ? AND usuario_id = ?
         `).get(seasonKey, Number(row.usuario_id));
-        if (!notified) {
+        if (!notified && notifyFinalResults) {
             await createNotification(db, {
                 usuarioId: Number(row.usuario_id),
                 tipo: 'ranking_final',
@@ -374,7 +376,7 @@ async function finalizeSeasonIfClosed(db, { start, end, groupId, forceFinalize =
     return ranking;
 }
 
-export async function refreshRankingRealtime(db, { groupIds = null, notifyPositionChanges = true, runForAllGroups = true, emitEvent = true } = {}) {
+export async function refreshRankingRealtime(db, { groupIds = null, notifyPositionChanges = true, notifyFinalResults = true, runForAllGroups = true, emitEvent = true } = {}) {
     const range = await getOfficialRankingRange(db);
     if (!range) return { hasActiveSeason: false, range: null };
 
@@ -403,14 +405,26 @@ export async function refreshRankingRealtime(db, { groupIds = null, notifyPositi
             await notifyTopChanges(db, previousMap, current);
         }
         await saveCurrentPositions(db, seasonKey, current);
-        await finalizeSeasonIfClosed(db, { start: range.start, end: range.end, groupId, forceFinalize: Boolean(range.forceFinalize) });
+        await finalizeSeasonIfClosed(db, {
+            start: range.start,
+            end: range.end,
+            groupId,
+            forceFinalize: Boolean(range.forceFinalize),
+            notifyFinalResults,
+        });
     }
 
     // Keep a global "all groups" snapshot for admin/global ranking UI.
     const globalSeasonKey = getSeasonKey(range.start, range.end, null);
     const globalRanking = await computeRankingForScope(db, { start: range.start, end: range.end, groupId: null, limit: 10 });
     await saveCurrentPositions(db, globalSeasonKey, globalRanking);
-    await finalizeSeasonIfClosed(db, { start: range.start, end: range.end, groupId: null, forceFinalize: Boolean(range.forceFinalize) });
+    await finalizeSeasonIfClosed(db, {
+        start: range.start,
+        end: range.end,
+        groupId: null,
+        forceFinalize: Boolean(range.forceFinalize),
+        notifyFinalResults,
+    });
 
     if (emitEvent) {
         publishRankingEvent({

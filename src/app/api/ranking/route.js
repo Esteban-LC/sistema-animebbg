@@ -2,6 +2,7 @@ import { ensureAssignmentGroupSnapshotSchema, getDb } from '@/lib/db';
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getFinalTopForScope, refreshRankingRealtime } from '@/lib/ranking';
+import { getMexicoCityDatetime, getRankingTimeContext } from '@/lib/time';
 
 const PRODUCTION_ROLES = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
 
@@ -30,7 +31,7 @@ function toDateEnd(value) {
 }
 
 function getCurrentDatetime() {
-    return new Date().toISOString().slice(0, 19).replace('T', ' ');
+    return getMexicoCityDatetime();
 }
 
 function addDaysToISO(isoDate, days) {
@@ -177,6 +178,7 @@ export async function GET(request) {
         const groupRankingHidden = Number(groupRow?.mostrar_ranking ?? 1) !== 1;
 
         const officialRange = await getOrCreateRankingConfig(db);
+        const timeContext = getRankingTimeContext();
         const { searchParams } = new URL(request.url);
         const action = searchParams.get('action');
         const queryStart = searchParams.get('start');
@@ -283,6 +285,7 @@ export async function GET(request) {
                 seasonClosed: false,
                 rankingHidden: false,
                 forceFinalized: false,
+                timeContext,
                 range: null,
                 officialRange: null,
                 total: 0,
@@ -301,6 +304,7 @@ export async function GET(request) {
                 seasonClosed: forceFinalized || toDateEnd(String(end)) < getCurrentDatetime(),
                 rankingHidden: true,
                 forceFinalized,
+                timeContext,
                 range: { start, end },
                 officialRange: { start: officialRange.start, end: officialRange.end },
                 total: 0,
@@ -428,6 +432,7 @@ export async function GET(request) {
             seasonClosed,
             rankingHidden,
             forceFinalized,
+            timeContext,
             range: { start, end },
             officialRange: officialRange ? { start: officialRange.start, end: officialRange.end } : null,
             total: payload.length,
@@ -575,6 +580,8 @@ export async function PATCH(request) {
 
         await refreshRankingRealtime(db, {
             notifyPositionChanges: false,
+            notifyFinalResults: false,
+            emitEvent: false,
         });
 
         return NextResponse.json({

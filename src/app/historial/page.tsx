@@ -38,6 +38,7 @@ interface HistorialResponse {
         start: string;
         end: string;
     } | null;
+    range_source?: 'none' | 'custom' | 'ranking';
 }
 
 export default function HistorialPage() {
@@ -49,9 +50,12 @@ export default function HistorialPage() {
     const [selectedUser, setSelectedUser] = useState<string>('');
     const [startDate, setStartDate] = useState<string>('');
     const [endDate, setEndDate] = useState<string>('');
+    const [useRankingRange, setUseRankingRange] = useState(true);
     const [draftSelectedUser, setDraftSelectedUser] = useState<string>('');
     const [draftStartDate, setDraftStartDate] = useState<string>('');
     const [draftEndDate, setDraftEndDate] = useState<string>('');
+    const [draftUseRankingRange, setDraftUseRankingRange] = useState(true);
+    const [rangeSource, setRangeSource] = useState<'none' | 'custom' | 'ranking'>('none');
 
     const roles = user?.roles || [];
     const productionRoles = ['Traductor', 'Traductor ENG', 'Traductor KO', 'Traductor JAP', 'Traductor KO/JAP', 'Redrawer', 'Typer'];
@@ -91,7 +95,8 @@ export default function HistorialPage() {
     useEffect(() => {
         setDraftStartDate(startDate);
         setDraftEndDate(endDate);
-    }, [startDate, endDate]);
+        setDraftUseRankingRange(useRankingRange);
+    }, [startDate, endDate, useRankingRange]);
 
     useEffect(() => {
         fetchHistorial();
@@ -120,7 +125,9 @@ export default function HistorialPage() {
                 // If can view all and selected a specific user
                 url += `&usuario_id=${selectedUser}`;
             }
-            if (startDate && endDate) {
+            if (useRankingRange) {
+                url += '&use_ranking_range=1';
+            } else if (startDate && endDate) {
                 url += `&start=${startDate}&end=${endDate}`;
             }
 
@@ -133,7 +140,8 @@ export default function HistorialPage() {
             }
             setHistorial(Array.isArray(data?.historial) ? data.historial : []);
             setResumen(Array.isArray(data?.resumen) ? data.resumen : []);
-            if (!startDate && !endDate && data?.range?.start && data?.range?.end) {
+            setRangeSource((data?.range_source as 'none' | 'custom' | 'ranking') || 'none');
+            if ((useRankingRange || (!startDate && !endDate)) && data?.range?.start && data?.range?.end) {
                 setStartDate(data.range.start);
                 setEndDate(data.range.end);
             }
@@ -141,6 +149,7 @@ export default function HistorialPage() {
             console.error(error);
             setHistorial([]);
             setResumen([]);
+            setRangeSource('none');
         } finally {
             setLoading(false);
         }
@@ -148,6 +157,12 @@ export default function HistorialPage() {
 
     const handleApplyFilters = () => {
         setSelectedUser(draftSelectedUser);
+        setUseRankingRange(draftUseRankingRange);
+        if (draftUseRankingRange) {
+            setStartDate('');
+            setEndDate('');
+            return;
+        }
         setStartDate(draftStartDate);
         setEndDate(draftEndDate);
     };
@@ -156,15 +171,18 @@ export default function HistorialPage() {
         setDraftSelectedUser(selectedUser);
         setDraftStartDate(startDate);
         setDraftEndDate(endDate);
+        setDraftUseRankingRange(useRankingRange);
     };
 
     const handleResetFilters = () => {
         setDraftSelectedUser('');
         setDraftStartDate('');
         setDraftEndDate('');
+        setDraftUseRankingRange(true);
         setSelectedUser('');
         setStartDate('');
         setEndDate('');
+        setUseRankingRange(true);
     };
 
     return (
@@ -197,16 +215,27 @@ export default function HistorialPage() {
                                     <option key={u.id} value={u.id}>{u.nombre}</option>
                                 ))}
                             </select>
+                            <label className="flex items-center gap-2 text-sm text-gray-200">
+                                <input
+                                    type="checkbox"
+                                    checked={draftUseRankingRange}
+                                    onChange={(e) => setDraftUseRankingRange(e.target.checked)}
+                                    className="accent-primary"
+                                />
+                                Vincular al ranking
+                            </label>
                             <input
                                 type="date"
                                 value={draftStartDate}
                                 onChange={(e) => setDraftStartDate(e.target.value)}
+                                disabled={draftUseRankingRange}
                                 className="bg-background-dark border border-gray-700 text-white text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5"
                             />
                             <input
                                 type="date"
                                 value={draftEndDate}
                                 onChange={(e) => setDraftEndDate(e.target.value)}
+                                disabled={draftUseRankingRange}
                                 className="bg-background-dark border border-gray-700 text-white text-sm rounded-lg focus:ring-primary focus:border-primary block p-2.5"
                             />
                             <button
@@ -241,6 +270,11 @@ export default function HistorialPage() {
                             {startDate && endDate && (
                                 <p className="text-xs text-muted-dark mb-3">
                                     Periodo visible: <span className="text-gray-200 font-semibold">{startDate} a {endDate}</span>
+                                    {rangeSource === 'ranking' && (
+                                        <span className="ml-2 inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                                            Vinculado al ranking
+                                        </span>
+                                    )}
                                 </p>
                             )}
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

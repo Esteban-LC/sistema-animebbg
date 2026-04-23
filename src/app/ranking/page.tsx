@@ -44,6 +44,12 @@ interface RankingResponse {
     seasonClosed?: boolean;
     rankingHidden?: boolean;
     forceFinalized?: boolean;
+    timeContext?: {
+        mexicoNow: string;
+        serverNow: string;
+        serverTimeZone: string;
+        rankingTimeZone: string;
+    };
     range: {
         start: string;
         end: string;
@@ -121,6 +127,19 @@ function formatDisplayDate(dateStr: string): string {
     return `${parts[2]}/${parts[1]}/${parts[0]}${time}`;
 }
 
+function formatDisplayDateTime12(dateStr: string): string {
+    if (!dateStr) return '';
+    const date = dateStr.slice(0, 10);
+    const parts = date.split('-');
+    if (parts.length !== 3) return dateStr;
+    const rawTime = dateStr.length > 10 ? dateStr.slice(11, 19) : '00:00:00';
+    const [hourStr = '00', minute = '00', second = '00'] = rawTime.split(':');
+    const hour24 = Number(hourStr);
+    const suffix = hour24 >= 12 ? 'PM' : 'AM';
+    const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+    return `${parts[2]}/${parts[1]}/${parts[0]} ${String(hour12).padStart(2, '0')}:${minute}:${second} ${suffix}`;
+}
+
 export default function RankingPage() {
     const { user, loading: userLoading } = useUser();
     const router = useRouter();
@@ -145,6 +164,10 @@ export default function RankingPage() {
     const [officialStartTime, setOfficialStartTime] = useState<string>('');
     const [officialEndDate, setOfficialEndDate] = useState<string>('');
     const [officialEndTime, setOfficialEndTime] = useState<string>('');
+    const [mexicoNow, setMexicoNow] = useState<string>('');
+    const [serverNow, setServerNow] = useState<string>('');
+    const [serverTimeZone, setServerTimeZone] = useState<string>('');
+    const [rankingTimeZone, setRankingTimeZone] = useState<string>('America/Mexico_City');
     const [ranking, setRanking] = useState<RankingEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -213,6 +236,10 @@ export default function RankingPage() {
             setRankingHidden(Boolean(typed.rankingHidden));
             setForceFinalized(Boolean(typed.forceFinalized));
             setFinalTop6(Array.isArray(typed.finalTop6) ? typed.finalTop6 : []);
+            setMexicoNow(String(typed.timeContext?.mexicoNow || ''));
+            setServerNow(String(typed.timeContext?.serverNow || ''));
+            setServerTimeZone(String(typed.timeContext?.serverTimeZone || ''));
+            setRankingTimeZone(String(typed.timeContext?.rankingTimeZone || 'America/Mexico_City'));
             const rawStart = typed.officialRange?.start || '';
             const rawEnd = typed.officialRange?.end || '';
             setOfficialStartDate(extractDate(rawStart));
@@ -602,6 +629,43 @@ export default function RankingPage() {
                             {!canConfigure && hasActiveSeason && officialStartDate && officialEndDate && (
                                 <div className="mb-4 bg-black/20 border border-gray-700 rounded-xl p-3 text-sm text-gray-200">
                                     Mostrando ranking oficial del periodo <span className="font-semibold">{officialStartDate} a {officialEndDate}</span>.
+                                </div>
+                            )}
+
+                            {(mexicoNow || serverNow || officialEndDate) && (
+                                <div className="mb-4 rounded-2xl border border-gray-700 bg-black/20 p-4">
+                                    <p className="text-xs uppercase tracking-[0.22em] font-bold text-gray-300">Comparacion de Horas</p>
+                                    <p className="mt-1 text-xs text-muted-dark">Formato 12 horas</p>
+                                    <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        {mexicoNow && (
+                                            <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
+                                                <p className="text-[10px] uppercase tracking-widest font-bold text-emerald-200">Hora MX</p>
+                                                <p className="mt-1 text-sm font-semibold text-white">{formatDisplayDateTime12(mexicoNow)}</p>
+                                                <p className="mt-1 text-[11px] text-emerald-100">{rankingTimeZone}</p>
+                                            </div>
+                                        )}
+                                        {serverNow && (
+                                            <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 p-3">
+                                                <p className="text-[10px] uppercase tracking-widest font-bold text-sky-200">Hora Servidor</p>
+                                                <p className="mt-1 text-sm font-semibold text-white">{formatDisplayDateTime12(serverNow)}</p>
+                                                <p className="mt-1 text-[11px] text-sky-100">{serverTimeZone || 'server-local'}</p>
+                                            </div>
+                                        )}
+                                        {officialEndDate && (
+                                            <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3">
+                                                <p className="text-[10px] uppercase tracking-widest font-bold text-amber-200">Cierre Oficial</p>
+                                                <p className="mt-1 text-sm font-semibold text-white">
+                                                    {formatDisplayDateTime12(`${officialEndDate} ${officialEndTime || '23:59'}:00`)}
+                                                </p>
+                                                <p className="mt-1 text-[11px] text-amber-100">Se compara con hora MX</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {officialEndDate && mexicoNow && (
+                                        <p className="mt-3 text-sm text-gray-200">
+                                            El cierre del ranking se compara con hora de <span className="font-semibold">{rankingTimeZone}</span>.
+                                        </p>
+                                    )}
                                 </div>
                             )}
 

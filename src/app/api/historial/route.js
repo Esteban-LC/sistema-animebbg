@@ -24,6 +24,7 @@ export async function GET(request) {
         const includeSummary = searchParams.get('include_summary') === '1';
         const queryStart = searchParams.get('start');
         const queryEnd = searchParams.get('end');
+        const useRankingRange = searchParams.get('use_ranking_range') === '1';
         const db = getDb();
         await ensureAssignmentGroupSnapshotSchema(db);
         const cookieStore = await cookies();
@@ -60,8 +61,16 @@ export async function GET(request) {
 
         let start = null;
         let end = null;
+        let rangeSource = 'none';
 
-        if (queryStart || queryEnd) {
+        if (useRankingRange) {
+            const officialRange = await getOfficialRankingRange(db);
+            if (officialRange?.start && officialRange?.end) {
+                start = String(officialRange.start).slice(0, 10);
+                end = String(officialRange.end).slice(0, 10);
+                rangeSource = 'ranking';
+            }
+        } else if (queryStart || queryEnd) {
             if (!isISODate(queryStart) || !isISODate(queryEnd)) {
                 return NextResponse.json({ error: 'Fechas invalidas. Usa formato YYYY-MM-DD.' }, { status: 400 });
             }
@@ -70,17 +79,19 @@ export async function GET(request) {
             }
             start = queryStart;
             end = queryEnd;
+            rangeSource = 'custom';
         } else if (includeSummary) {
             const officialRange = await getOfficialRankingRange(db);
             if (officialRange?.start && officialRange?.end) {
                 start = String(officialRange.start).slice(0, 10);
                 end = String(officialRange.end).slice(0, 10);
+                rangeSource = 'ranking';
             }
         }
 
         if (isLeaderOnly && !sessionGroupId) {
             return includeSummary
-                ? NextResponse.json({ historial: [], resumen: [], range: start && end ? { start, end } : null })
+                ? NextResponse.json({ historial: [], resumen: [], range: start && end ? { start, end } : null, range_source: rangeSource })
                 : NextResponse.json([]);
         }
 
@@ -197,6 +208,7 @@ export async function GET(request) {
             historial,
             resumen,
             range: start && end ? { start, end } : null,
+            range_source: rangeSource,
         });
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });

@@ -17,6 +17,7 @@ let performanceIndexesEnsured = false;
 let suggestionSchemaEnsured = false;
 let assignmentGroupSnapshotEnsured = false;
 let assignmentReviewSchemaEnsured = false;
+let completedAssignmentTimestampsEnsured = false;
 
 export function getDb() {
   if (dbInstance) return dbInstance;
@@ -275,6 +276,23 @@ export async function ensureAssignmentReviewSchema(db) {
   }
 
   assignmentReviewSchemaEnsured = true;
+}
+
+export async function ensureCompletedAssignmentTimestamps(db) {
+  if (completedAssignmentTimestampsEnsured || !db?.prepare) return;
+
+  try {
+    await db.prepare(`
+      UPDATE asignaciones
+      SET completado_en = COALESCE(asignado_en, CURRENT_TIMESTAMP)
+      WHERE estado = 'Completado'
+        AND completado_en IS NULL
+    `).run();
+  } catch {
+    // Ignore if the table is not ready yet in the current environment.
+  }
+
+  completedAssignmentTimestampsEnsured = true;
 }
 
 function initTables(db) {

@@ -167,12 +167,31 @@ export default function NotificacionesPage() {
 
             <div className="flex-1 overflow-y-auto p-4 lg:p-8 pb-32 md:pb-8">
                 <div className="max-w-4xl mx-auto space-y-4">
-                    <div className="bg-surface-dark border border-gray-800 rounded-xl p-4 flex items-center justify-between">
-                        <div>
-                            <p className="text-xs uppercase tracking-wider text-muted-dark">Resumen</p>
-                            <p className="text-white font-bold text-xl">{unread} sin leer</p>
+                    <div className="bg-surface-dark border border-gray-800 rounded-xl p-4">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-xs uppercase tracking-wider text-muted-dark">Resumen</p>
+                                <p className="text-white font-bold text-xl">{unread} sin leer</p>
+                            </div>
+                            <div className="hidden md:flex items-center gap-3">
+                                <button
+                                    onClick={markAllRead}
+                                    disabled={processingId !== null || unread === 0}
+                                    className="px-3 py-2 text-xs md:text-sm rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-primary disabled:opacity-50"
+                                >
+                                    Marcar todo como leido
+                                </button>
+                                <span className="material-icons-round text-primary text-3xl">notifications</span>
+                            </div>
+                            <span className="material-icons-round text-primary text-3xl md:hidden">notifications</span>
                         </div>
-                        <span className="material-icons-round text-primary text-3xl">notifications</span>
+                        <button
+                            onClick={markAllRead}
+                            disabled={processingId !== null || unread === 0}
+                            className="mt-3 w-full md:hidden px-4 py-2.5 text-sm rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-primary disabled:opacity-50"
+                        >
+                            Marcar todo como leido
+                        </button>
                     </div>
 
                     {loading ? (
