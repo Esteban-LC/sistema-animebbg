@@ -203,6 +203,7 @@ export default function DetalleAsignacion() {
     const [selectedRawVariant, setSelectedRawVariant] = useState<'CORE' | 'ENG'>('CORE');
     const [isFloatingViewer, setIsFloatingViewer] = useState(false);
     const [isMobileViewer, setIsMobileViewer] = useState(false);
+    const [isFocusViewer, setIsFocusViewer] = useState(false);
     const [floatPos, setFloatPos] = useState({ x: 40, y: 80 });
     const [floatSize] = useState({ w: 700, h: 520 });
     const floatRef = useRef<HTMLDivElement>(null);
@@ -1113,12 +1114,13 @@ export default function DetalleAsignacion() {
                                         <span className="text-xs text-muted-dark ml-auto">{driveImages.length > 0 && `${selectedImageIndex + 1}/${driveImages.length} · `}Zoom {Math.round(imageZoom * 100)}%</span>
                                     </div>
                                 );
-                                const viewerBody = (
+                                const renderViewerBody = (compactList = false) => (
                                     <>
                                         {driveImagesLoading && <div className="p-4 text-sm text-gray-300">Cargando paginas...</div>}
                                         {!driveImagesLoading && driveImagesError && <div className="p-4 text-sm text-red-300">{driveImagesError}</div>}
                                         {!driveImagesLoading && !driveImagesError && selectedImage && (
-                                            <div className="grid grid-cols-[160px_minmax(0,1fr)] h-full">
+                                            <div className={`grid h-full ${compactList ? 'grid-cols-[minmax(0,1fr)]' : 'grid-cols-[160px_minmax(0,1fr)]'}`}>
+                                                {!compactList && (
                                                 <div className="border-r border-gray-700 p-2 overflow-y-auto space-y-2">
                                                     {driveImages.map((img, idx) => (
                                                         <div key={img.id} className={`w-full text-left p-2 rounded border ${idx === selectedImageIndex ? 'border-primary/60 bg-primary/10' : 'border-gray-700 bg-surface-dark'}`}>
@@ -1130,6 +1132,7 @@ export default function DetalleAsignacion() {
                                                         </div>
                                                     ))}
                                                 </div>
+                                                )}
                                                 <div className="overflow-auto flex items-start justify-center bg-black/40 p-2">
                                                     <img src={`/api/drive/image?id=${selectedImage.id}`} alt={selectedImage.name} className="block w-full h-auto" style={{ transform: `scale(${imageZoom})`, transformOrigin: 'top center', marginTop: '8px' }} />
                                                 </div>
@@ -1154,7 +1157,7 @@ export default function DetalleAsignacion() {
                                         {!isFloatingViewer && (
                                             <div className="mb-4 border border-gray-700 rounded-lg bg-background-dark hidden md:block">
                                                 <div className="p-3 border-b border-gray-700">{viewerToolbar}</div>
-                                                <div style={{ height: 500 }}>{viewerBody}</div>
+                                                <div style={{ height: 500 }}>{renderViewerBody()}</div>
                                             </div>
                                         )}
 
@@ -1168,10 +1171,17 @@ export default function DetalleAsignacion() {
                                                 <div className="p-2 border-b border-gray-700 bg-[#090c12] cursor-move flex gap-2 items-center select-none" onMouseDown={onDragStart}>
                                                     <span className="material-icons-round text-gray-500 text-sm">drag_indicator</span>
                                                     <span className="text-xs text-gray-400 flex-1">{selectedRawLabel} — {selectedImage?.name || ''}</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsFocusViewer((prev) => !prev)}
+                                                        className="px-2 py-1 text-xs rounded border border-gray-700 text-gray-300 hover:text-white hover:border-primary"
+                                                    >
+                                                        {isFocusViewer ? 'Modo normal' : 'Modo enfoque'}
+                                                    </button>
                                                     {viewerToolbar}
                                                     <button type="button" onClick={() => setIsFloatingViewer(false)} className="ml-2 text-gray-400 hover:text-white"><span className="material-icons-round text-sm">close</span></button>
                                                 </div>
-                                                <div className="flex-1 overflow-hidden">{viewerBody}</div>
+                                                <div className="flex-1 overflow-hidden">{renderViewerBody(isFocusViewer)}</div>
                                             </div>
                                         )}
 
