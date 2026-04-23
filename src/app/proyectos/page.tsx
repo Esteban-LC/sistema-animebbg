@@ -1222,8 +1222,8 @@ export default function ProyectosPage() {
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-90 group-hover:opacity-95 transition-opacity"></div>
 
                                         {/* Status Badge with Glow */}
-                                        <div className="absolute top-3 right-3">
-                                            <span className={`text-white text-[10px] font-bold px-3 py-1.5 rounded-lg uppercase tracking-wider backdrop-blur-md shadow-glow flex items-center gap-1.5 ${p.estado === 'Activo' ? 'bg-emerald-500/90 shadow-emerald-500/50' :
+                                        <div className="absolute top-2 right-2 sm:top-3 sm:right-3">
+                                            <span className={`text-white text-[9px] sm:text-[10px] font-bold px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg uppercase tracking-[0.18em] sm:tracking-wider backdrop-blur-md shadow-glow flex items-center gap-1 sm:gap-1.5 ${p.estado === 'Activo' ? 'bg-emerald-500/90 shadow-emerald-500/50' :
                                                 p.estado === 'Pausado' ? 'bg-yellow-500/90 shadow-yellow-500/50' :
                                                     p.estado === 'Finalizado' ? 'bg-red-500/90 shadow-red-500/50' :
                                                         p.estado === 'Cancelado' ? 'bg-gray-500/90 shadow-gray-500/50' :
@@ -1241,12 +1241,11 @@ export default function ProyectosPage() {
                                         </div>
 
                                         {/* Title Overlay */}
-                                        <div className="absolute bottom-0 left-0 w-full p-4 bg-gradient-to-t from-black/80 to-transparent">
-                                            <h3 className="text-lg sm:text-xl font-display font-bold text-white leading-tight mb-1.5 group-hover:text-primary transition-colors line-clamp-2 drop-shadow-lg">{p.titulo}</h3>
-                                            <div className="flex items-center gap-2 text-xs text-gray-300 font-medium">
+                                        <div className="absolute bottom-0 left-0 w-full p-3 sm:p-4 bg-gradient-to-t from-black/80 to-transparent">
+                                            <h3 className="text-base sm:text-xl font-display font-bold text-white leading-tight mb-2 group-hover:text-primary transition-colors line-clamp-3 sm:line-clamp-2 drop-shadow-lg">{p.titulo}</h3>
+                                            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs text-gray-300 font-medium">
                                                 <span className="px-2 py-0.5 bg-white/10 backdrop-blur-sm rounded">{p.tipo}</span>
-                                                <span>•</span>
-                                                <span>{p.genero}</span>
+                                                <span className="px-2 py-0.5 bg-black/25 backdrop-blur-sm rounded border border-white/10">{p.genero}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -1270,25 +1269,25 @@ export default function ProyectosPage() {
                                                     <button
                                                         type="button"
                                                         onClick={() => handleOpenModal(p, 'fuentes')}
-                                                        className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors hover:border-primary/60 ${hasProjectFuentesConfigured(p.fuentes_config)
+                                                        className={`w-full flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border px-3 py-2 transition-colors hover:border-primary/60 ${hasProjectFuentesConfigured(p.fuentes_config)
                                                         ? 'border-emerald-500/30 bg-emerald-500/10'
                                                         : 'border-red-500/30 bg-red-500/10'
                                                         }`}
                                                     >
-                                                        <div className="flex items-center gap-2 min-w-0">
+                                                        <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto">
                                                             <span className={`material-icons-round text-base ${hasProjectFuentesConfigured(p.fuentes_config) ? 'text-emerald-300' : 'text-red-300'}`}>
                                                                 {hasProjectFuentesConfigured(p.fuentes_config) ? 'check_circle' : 'cancel'}
                                                             </span>
-                                                            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-200">Fuentes</span>
+                                                            <span className="text-[11px] font-bold uppercase tracking-[0.16em] sm:tracking-wider text-gray-200">Fuentes</span>
                                                         </div>
-                                                        <span className={`text-[10px] font-bold uppercase tracking-wider ${hasProjectFuentesConfigured(p.fuentes_config) ? 'text-emerald-200' : 'text-red-200'}`}>
+                                                        <span className={`text-[10px] font-bold uppercase tracking-[0.12em] sm:tracking-wider self-end sm:self-auto ${hasProjectFuentesConfigured(p.fuentes_config) ? 'text-emerald-200' : 'text-red-200'}`}>
                                                             {hasProjectFuentesConfigured(p.fuentes_config) ? 'Asignadas' : 'Pendiente'}
                                                         </span>
                                                     </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => handleOpenModal(p, 'creditos')}
-                                                        className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 transition-colors hover:border-primary/60 ${
+                                                        className={`w-full flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border px-3 py-2 transition-colors hover:border-primary/60 ${
                                                             getCreditosStatus(p.creditos_config) === 'full'
                                                             ? 'border-emerald-500/30 bg-emerald-500/10'
                                                             : getCreditosStatus(p.creditos_config) === 'partial'
@@ -1296,7 +1295,7 @@ export default function ProyectosPage() {
                                                             : 'border-red-500/30 bg-red-500/10'
                                                         }`}
                                                     >
-                                                        <div className="flex items-center gap-2 min-w-0">
+                                                        <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto">
                                                             <span className={`material-icons-round text-base ${
                                                                 getCreditosStatus(p.creditos_config) === 'full' ? 'text-emerald-300'
                                                                 : getCreditosStatus(p.creditos_config) === 'partial' ? 'text-yellow-300'
@@ -1306,9 +1305,9 @@ export default function ProyectosPage() {
                                                                 : getCreditosStatus(p.creditos_config) === 'partial' ? 'warning'
                                                                 : 'cancel'}
                                                             </span>
-                                                            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-200">Plantilla creditos</span>
+                                                            <span className="text-[11px] font-bold uppercase tracking-[0.12em] sm:tracking-wider text-gray-200">Plantilla creditos</span>
                                                         </div>
-                                                        <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                                                        <span className={`text-[10px] font-bold uppercase tracking-[0.08em] sm:tracking-wider self-end sm:self-auto text-right ${
                                                             getCreditosStatus(p.creditos_config) === 'full' ? 'text-emerald-200'
                                                             : getCreditosStatus(p.creditos_config) === 'partial' ? 'text-yellow-200'
                                                             : 'text-red-200'
