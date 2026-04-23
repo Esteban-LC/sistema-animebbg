@@ -173,10 +173,7 @@ export default function NotificacionesPage() {
                                 <p className="text-xs uppercase tracking-wider text-muted-dark">Resumen</p>
                                 <p className="text-white font-bold text-xl">{unread} sin leer</p>
                             </div>
-                            <div className="hidden md:flex items-center gap-3">
-                                <span className="material-icons-round text-primary text-3xl">notifications</span>
-                            </div>
-                            <span className="material-icons-round text-primary text-3xl md:hidden">notifications</span>
+                            <span className="material-icons-round text-primary text-3xl">notifications</span>
                         </div>
                         <button
                             onClick={markAllRead}
