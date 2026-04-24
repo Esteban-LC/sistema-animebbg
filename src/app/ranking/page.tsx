@@ -102,6 +102,25 @@ function durationLabel(mode: DurationMode) {
     return 'Personalizado';
 }
 
+function getSuggestedNextSeasonRange(officialEnd: string, mexicoNow: string) {
+    const currentDate = extractDate(mexicoNow || '');
+    const currentTime = extractTime(mexicoNow || '') || '00:00';
+    const baseStart = currentDate
+        ? new Date(`${currentDate}T00:00:00`)
+        : officialEnd
+            ? addDays(new Date(`${officialEnd}T00:00:00`), 1)
+            : new Date();
+    const nextEnd = addDays(baseStart, 29);
+
+    return {
+        startDate: toISODate(baseStart),
+        startTime: currentTime,
+        endDate: toISODate(nextEnd),
+        endTime: currentTime,
+        duration: '30d' as DurationMode,
+    };
+}
+
 function roleLabel(row: RankingEntry) {
     const pairs = [
         { key: 'Traductor', value: row.traductor },
@@ -275,11 +294,24 @@ export default function RankingPage() {
                     const nextStartTime = extractTime(rawStart) || '00:00';
                     const nextEndDate = extractDate(rawEnd);
                     const nextEndTime = extractTime(rawEnd) || '23:59';
-                    setStartDate(nextStartDate);
-                    setStartTime(nextStartTime);
-                    setEndDate(nextEndDate);
-                    setEndTime(nextEndTime);
-                    setDuration(detectDurationMode(nextStartDate, nextEndDate, nextStartTime, nextEndTime));
+
+                    if (typed.forceFinalized || typed.seasonClosed) {
+                        const suggestedRange = getSuggestedNextSeasonRange(
+                            nextEndDate,
+                            String(typed.timeContext?.mexicoNow || '')
+                        );
+                        setStartDate(suggestedRange.startDate);
+                        setStartTime(suggestedRange.startTime);
+                        setEndDate(suggestedRange.endDate);
+                        setEndTime(suggestedRange.endTime);
+                        setDuration(suggestedRange.duration);
+                    } else {
+                        setStartDate(nextStartDate);
+                        setStartTime(nextStartTime);
+                        setEndDate(nextEndDate);
+                        setEndTime(nextEndTime);
+                        setDuration(detectDurationMode(nextStartDate, nextEndDate, nextStartTime, nextEndTime));
+                    }
                 } else {
                     const fallback = getRangeByMode('30d');
                     setStartDate(fallback.start);
@@ -485,6 +517,10 @@ export default function RankingPage() {
         () => finalTop6.find((item) => Number(item.usuario_id) === Number(user?.id)) || null,
         [finalTop6, user?.id]
     );
+    const nextSeasonSuggestion = useMemo(
+        () => getSuggestedNextSeasonRange(officialEndDate || '', mexicoNow || ''),
+        [officialEndDate, mexicoNow]
+    );
 
     return (
         <div className="flex-1 flex flex-col h-full bg-background-dark overflow-hidden">
@@ -526,11 +562,17 @@ export default function RankingPage() {
                                         <div>
                                             <p className="text-xs uppercase tracking-[0.22em] font-bold text-primary/80">Centro de Control</p>
                                             <h3 className="mt-1 text-lg font-display font-bold uppercase tracking-wide text-white">
-                                                {canConfigure ? 'Configuracion de Temporada' : 'Control de Visibilidad'}
+                                                {canConfigure
+                                                    ? forceFinalized || seasonClosed
+                                                        ? 'Siguiente Temporada'
+                                                        : 'Configuracion de Temporada'
+                                                    : 'Control de Visibilidad'}
                                             </h3>
                                             <p className="mt-1 text-sm text-muted-dark">
                                                 {canConfigure
-                                                    ? 'Ajusta el periodo oficial, revisa una vista previa y aplica el cierre cuando corresponda.'
+                                                    ? forceFinalized || seasonClosed
+                                                        ? 'La temporada anterior ya cerro. Ahora el panel te propone iniciar la siguiente temporada mensual.'
+                                                        : 'Ajusta el periodo oficial, revisa una vista previa y aplica el cierre cuando corresponda.'
                                                     : 'Administra si tu grupo puede ver o no el ranking oficial.'}
                                             </p>
                                         </div>
@@ -561,7 +603,11 @@ export default function RankingPage() {
                                                 <div className="flex items-center justify-between gap-3">
                                                     <div>
                                                         <p className="text-[11px] uppercase tracking-[0.22em] font-bold text-gray-300">Periodo oficial</p>
-                                                        <p className="mt-1 text-sm text-muted-dark">Mensual queda como preset principal, pero puedes afinar el rango manualmente.</p>
+                                                        <p className="mt-1 text-sm text-muted-dark">
+                                                            {forceFinalized || seasonClosed
+                                                                ? 'Se cargo una propuesta mensual para arrancar la nueva temporada. Puedes ajustarla antes de aplicarla.'
+                                                                : 'Mensual queda como preset principal, pero puedes afinar el rango manualmente.'}
+                                                        </p>
                                                     </div>
                                                 </div>
 
@@ -627,18 +673,27 @@ export default function RankingPage() {
 
                                                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                                                     <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
-                                                        <p className="text-[10px] uppercase tracking-widest font-bold text-primary/80">Rango actual</p>
+                                                        <p className="text-[10px] uppercase tracking-widest font-bold text-primary/80">
+                                                            {forceFinalized || seasonClosed ? 'Nueva temporada sugerida' : 'Rango actual'}
+                                                        </p>
                                                         <p className="mt-1 text-sm font-semibold text-white">
                                                             {startDate ? formatDisplayDate(startDate) : '--'} {startTime || '00:00'}
                                                         </p>
                                                         <p className="text-sm font-semibold text-white">
                                                             a {endDate ? formatDisplayDate(endDate) : '--'} {endTime || '23:59'}
                                                         </p>
+                                                        {(forceFinalized || seasonClosed) && mexicoNow && (
+                                                            <p className="mt-2 text-[11px] text-primary/80">
+                                                                Hora sugerida segun MX actual: {formatDisplayDateTime12(mexicoNow)}
+                                                            </p>
+                                                        )}
                                                     </div>
                                                     <div className="rounded-xl border border-gray-700 bg-black/20 p-3">
                                                         <p className="text-[10px] uppercase tracking-widest font-bold text-gray-300">Uso recomendado</p>
                                                         <p className="mt-1 text-sm text-muted-dark">
-                                                            Usa <span className="text-white font-semibold">Vista previa</span> para revisar el conteo y luego <span className="text-white font-semibold">Aplicar periodo</span> para volverlo oficial.
+                                                            {forceFinalized || seasonClosed
+                                                                ? <>Usa <span className="text-white font-semibold">Iniciar nueva temporada</span> para abrir el siguiente ciclo oficial con la fecha y hora sugeridas desde MX.</>
+                                                                : <>Usa <span className="text-white font-semibold">Vista previa</span> para revisar el conteo y luego <span className="text-white font-semibold">Aplicar periodo</span> para volverlo oficial.</>}
                                                         </p>
                                                     </div>
                                                 </div>
@@ -663,10 +718,21 @@ export default function RankingPage() {
                                                             disabled={saving || !startDate || !endDate}
                                                             className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition hover:bg-primary/90 disabled:opacity-50"
                                                         >
-                                                            <span className="material-icons-round text-base">save</span>
-                                                            {saving ? 'Aplicando...' : 'Aplicar periodo'}
+                                                            <span className="material-icons-round text-base">{forceFinalized || seasonClosed ? 'autorenew' : 'save'}</span>
+                                                            {saving
+                                                                ? forceFinalized || seasonClosed
+                                                                    ? 'Iniciando...'
+                                                                    : 'Aplicando...'
+                                                                : forceFinalized || seasonClosed
+                                                                    ? 'Iniciar nueva temporada'
+                                                                    : 'Aplicar periodo'}
                                                         </button>
                                                     </div>
+                                                    {(forceFinalized || seasonClosed) && (
+                                                        <div className="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-100">
+                                                            Sugerencia activa: del {formatDisplayDate(nextSeasonSuggestion.startDate)} {nextSeasonSuggestion.startTime} al {formatDisplayDate(nextSeasonSuggestion.endDate)} {nextSeasonSuggestion.endTime}.
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -705,18 +771,23 @@ export default function RankingPage() {
 
                                                             <button
                                                                 onClick={handleFinalize}
-                                                                disabled={saving || forceFinalized}
-                                                                className="inline-flex items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-600/90 px-4 py-3 text-left text-sm font-bold text-white transition hover:bg-amber-500 disabled:opacity-50"
+                                                                disabled={saving || forceFinalized || seasonClosed}
+                                                                className={`inline-flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left text-sm font-bold transition disabled:opacity-70 ${forceFinalized || seasonClosed
+                                                                    ? 'border-gray-700 bg-gray-900/70 text-gray-400 cursor-not-allowed'
+                                                                    : 'border-amber-500/40 bg-amber-600/90 text-white hover:bg-amber-500'
+                                                                    }`}
                                                             >
-                                                                <span>{forceFinalized ? 'Temporada finalizada' : 'Cerrar temporada y fijar resultado'}</span>
-                                                                <span className="material-icons-round text-base">flag</span>
+                                                                <span>{forceFinalized || seasonClosed ? 'Temporada ya cerrada' : 'Cerrar temporada y fijar resultado'}</span>
+                                                                <span className="material-icons-round text-base">{forceFinalized || seasonClosed ? 'lock' : 'flag'}</span>
                                                             </button>
                                                         </>
                                                     )}
                                                 </div>
                                                 <p className="mt-3 text-xs text-muted-dark">
                                                     {canConfigure
-                                                        ? 'Aplicar periodo solo actualiza el rango oficial. Cerrar temporada deja la clasificacion final registrada.'
+                                                        ? forceFinalized || seasonClosed
+                                                            ? 'La temporada ya quedo cerrada. Ahora el siguiente paso natural es iniciar la nueva temporada sugerida con la hora actual de MX.'
+                                                            : 'Aplicar periodo solo actualiza el rango oficial. Cerrar temporada deja la clasificacion final registrada.'
                                                         : 'Este control solo afecta la visibilidad del ranking para el staff de tu grupo.'}
                                                 </p>
                                             </div>

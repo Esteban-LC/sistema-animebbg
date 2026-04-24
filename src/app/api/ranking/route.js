@@ -230,7 +230,18 @@ export async function GET(request) {
             }
 
             const scopeKey = getScopeKey(isAdmin ? null : viewerGroupId);
-            const currentSeasonKey = officialRange
+            const scopeGroupId = isAdmin ? null : (viewerGroupId ? Number(viewerGroupId) : null);
+            const officialSeasonClosed = Boolean(officialRange?.forceFinalize) || toDateEnd(String(officialRange?.end || '')) < getCurrentDatetime();
+
+            if (officialRange?.start && officialRange?.end && officialSeasonClosed) {
+                await getFinalTopForScope(db, {
+                    start: officialRange.start,
+                    end: officialRange.end,
+                    groupId: scopeGroupId,
+                });
+            }
+
+            const currentSeasonKey = officialRange && !officialSeasonClosed
                 ? `${officialRange.start}|${officialRange.end}|${scopeKey}`
                 : null;
             const rows = currentSeasonKey
