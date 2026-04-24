@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 
 interface User {
     id: number;
@@ -18,9 +18,9 @@ interface User {
         showRanking: boolean;
         showNotifications: boolean;
     };
-    role?: string; // Legacy support
+    role?: string;
     isDefaultPassword?: boolean;
-    rango?: number; // 1 = Nuevo, 2 = Staff
+    rango?: number;
 }
 
 interface UserContextType {
@@ -35,6 +35,27 @@ interface LoginCredentials {
     username: string;
     password: string;
     rememberMe?: boolean;
+}
+
+async function readErrorResponse(res: Response) {
+    const contentType = res.headers.get('content-type') || '';
+
+    if (contentType.includes('application/json')) {
+        const data = await res.json().catch(() => null);
+        if (data && typeof data.error === 'string' && data.error.trim()) {
+            return data.error;
+        }
+    } else {
+        const text = await res.text().catch(() => '');
+        if (text.includes('404: This page could not be found.')) {
+            return 'La ruta de autenticacion no esta disponible en este momento.';
+        }
+        if (text.trim()) {
+            return text.slice(0, 200);
+        }
+    }
+
+    return `Error al iniciar sesion (${res.status})`;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -85,8 +106,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.error || 'Error al iniciar sesión');
+            const message = await readErrorResponse(res);
+            throw new Error(message);
         }
 
         const userData = await res.json();

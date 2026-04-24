@@ -574,6 +574,7 @@ export async function PATCH(request) {
             ON CONFLICT(id) DO UPDATE SET
                 start_date = excluded.start_date,
                 end_date = excluded.end_date,
+                force_finalize = 0,
                 updated_by = excluded.updated_by,
                 updated_at = datetime('now')
         `).run(start, end, session.usuario_id);

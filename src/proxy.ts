@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-const PUBLIC_ROUTES = ['/login', '/api/auth/login', '/api/auth/logout'];
+const PUBLIC_ROUTES = [
+    '/login',
+    '/api/auth/login',
+    '/api/auth/logout',
+    '/api/auth/google',
+    '/api/auth/google/callback',
+    '/api/auth/google/status',
+];
 const CANONICAL_HOST = 'www.sistema-gestorbbg.linkpc.net';
 const LEGACY_HOSTS = new Set(['sistema-gestorbbg.linkpc.net']);
 
@@ -44,6 +51,6 @@ export function proxy(request: NextRequest) {
 
 export const config = {
     matcher: [
-        '/((?!api/auth|_next/static|_next/image|favicon.ico).*)',
+        '/((?!_next/static|_next/image|favicon.ico).*)',
     ],
 };

@@ -80,6 +80,28 @@ function getRangeByMode(mode: Exclude<DurationMode, 'custom'>) {
     return { start: toISODate(addDays(end, -29)), end: toISODate(end) };
 }
 
+function detectDurationMode(start: string, end: string, startTime: string, endTime: string): DurationMode {
+    if (!start || !end) return '30d';
+    if (startTime !== '00:00' || endTime !== '23:59') return 'custom';
+
+    const startDate = new Date(`${start}T00:00:00`);
+    const endDate = new Date(`${end}T00:00:00`);
+    const diffMs = endDate.getTime() - startDate.getTime();
+    const diffDays = Math.round(diffMs / 86400000) + 1;
+
+    if (diffDays === 7) return '7d';
+    if (diffDays === 14) return '14d';
+    if (diffDays === 30) return '30d';
+    return 'custom';
+}
+
+function durationLabel(mode: DurationMode) {
+    if (mode === '30d') return 'Mensual';
+    if (mode === '14d') return 'Quincenal';
+    if (mode === '7d') return 'Semanal';
+    return 'Personalizado';
+}
+
 function roleLabel(row: RankingEntry) {
     const pairs = [
         { key: 'Traductor', value: row.traductor },
@@ -155,7 +177,7 @@ export default function RankingPage() {
     }, [userLoading, user, isLeader, router]);
     const canManageGroupVisibility = Boolean(user?.grupo_id && (user?.isAdmin || roles.includes('Administrador') || roles.includes('Lider de Grupo')));
     const [canConfigure, setCanConfigure] = useState(false);
-    const [duration, setDuration] = useState<DurationMode>('custom');
+    const [duration, setDuration] = useState<DurationMode>('30d');
     const [startDate, setStartDate] = useState<string>('');
     const [startTime, setStartTime] = useState<string>('00:00');
     const [endDate, setEndDate] = useState<string>('');
@@ -249,16 +271,22 @@ export default function RankingPage() {
 
             if (!previewRange) {
                 if (rawStart && rawEnd) {
-                    setStartDate(extractDate(rawStart));
-                    setStartTime(extractTime(rawStart) || '00:00');
-                    setEndDate(extractDate(rawEnd));
-                    setEndTime(extractTime(rawEnd) || '23:59');
+                    const nextStartDate = extractDate(rawStart);
+                    const nextStartTime = extractTime(rawStart) || '00:00';
+                    const nextEndDate = extractDate(rawEnd);
+                    const nextEndTime = extractTime(rawEnd) || '23:59';
+                    setStartDate(nextStartDate);
+                    setStartTime(nextStartTime);
+                    setEndDate(nextEndDate);
+                    setEndTime(nextEndTime);
+                    setDuration(detectDurationMode(nextStartDate, nextEndDate, nextStartTime, nextEndTime));
                 } else {
-                    const fallback = getRangeByMode('7d');
+                    const fallback = getRangeByMode('30d');
                     setStartDate(fallback.start);
                     setStartTime('00:00');
                     setEndDate(fallback.end);
                     setEndTime('23:59');
+                    setDuration('30d');
                 }
             }
         } catch {
@@ -493,129 +521,206 @@ export default function RankingPage() {
                             </div>
 
                             {(canConfigure || canManageGroupVisibility) && (
-                                <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-4">
-                                    {canConfigure && (
-                                        <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
-                                        <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Duracion</span>
-                                        <select
-                                            value={duration}
-                                            onChange={(e) => setDuration(e.target.value as DurationMode)}
-                                            className="mt-2 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-                                        >
-                                            <option value="7d">7 dias</option>
-                                            <option value="14d">14 dias</option>
-                                            <option value="30d">30 dias</option>
-                                            <option value="custom">Personalizado</option>
-                                        </select>
-                                        </label>
-                                    )}
-
-                                    {canConfigure && (
-                                        <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
-                                        <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Inicio</span>
-                                        <input
-                                            type="date"
-                                            value={startDate}
-                                            onChange={(e) => {
-                                                setDuration('custom');
-                                                setStartDate(e.target.value);
-                                            }}
-                                            className="mt-2 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-                                        />
-                                        <input
-                                            type="time"
-                                            value={startTime}
-                                            onChange={(e) => {
-                                                setDuration('custom');
-                                                setStartTime(e.target.value);
-                                            }}
-                                            className="mt-1 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
-                                        />
-                                        </label>
-                                    )}
-
-                                    {canConfigure && (
-                                        <label className="bg-black/20 border border-gray-700 rounded-xl p-3">
-                                        <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Fin</span>
-                                        <input
-                                            type="date"
-                                            value={endDate}
-                                            onChange={(e) => {
-                                                setDuration('custom');
-                                                setEndDate(e.target.value);
-                                            }}
-                                            className="mt-2 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-                                        />
-                                        <input
-                                            type="time"
-                                            value={endTime}
-                                            onChange={(e) => {
-                                                setDuration('custom');
-                                                setEndTime(e.target.value);
-                                            }}
-                                            className="mt-1 w-full bg-background-dark border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm"
-                                        />
-                                        </label>
-                                    )}
-
-                                    <div className="bg-black/20 border border-gray-700 rounded-xl p-3 flex flex-col justify-center">
-                                        <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">
-                                            {canConfigure ? 'Control admin' : 'Control de grupo'}
-                                        </span>
-                                        <div className="mt-2 flex gap-2">
-                                            {canConfigure && (
-                                                <>
-                                                    <button
-                                                        onClick={handlePreview}
-                                                        disabled={loading || !startDate || !endDate}
-                                                        className="px-3 py-2 rounded-lg text-xs font-bold bg-surface-darker border border-gray-600 text-white disabled:opacity-50"
-                                                    >
-                                                        Ver
-                                                    </button>
-                                                    <button
-                                                        onClick={handleSave}
-                                                        disabled={saving || !startDate || !endDate}
-                                                        className="px-3 py-2 rounded-lg text-xs font-bold bg-primary text-white disabled:opacity-50"
-                                                    >
-                                                        {saving ? 'Guardando...' : 'Guardar'}
-                                                    </button>
-                                                </>
-                                            )}
+                                <div className="mb-4 rounded-2xl border border-gray-700/80 bg-black/25 p-4 md:p-5">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                                        <div>
+                                            <p className="text-xs uppercase tracking-[0.22em] font-bold text-primary/80">Centro de Control</p>
+                                            <h3 className="mt-1 text-lg font-display font-bold uppercase tracking-wide text-white">
+                                                {canConfigure ? 'Configuracion de Temporada' : 'Control de Visibilidad'}
+                                            </h3>
+                                            <p className="mt-1 text-sm text-muted-dark">
+                                                {canConfigure
+                                                    ? 'Ajusta el periodo oficial, revisa una vista previa y aplica el cierre cuando corresponda.'
+                                                    : 'Administra si tu grupo puede ver o no el ranking oficial.'}
+                                            </p>
                                         </div>
-                                        <div className="mt-2 flex gap-2">
-                                            {canManageGroupVisibility && (
-                                                <button
-                                                    onClick={() => handleSetGroupVisibility(groupRankingVisible)}
-                                                    disabled={saving}
-                                                    className="px-3 py-2 rounded-lg text-xs font-bold bg-surface-darker border border-gray-600 text-white disabled:opacity-50"
-                                                >
-                                                    {groupRankingVisible ? 'Ocultar para este grupo' : 'Mostrar para este grupo'}
-                                                </button>
-                                            )}
+                                        {canConfigure && (
+                                            <div className="flex flex-wrap gap-2">
+                                                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">
+                                                    <span className="material-icons-round text-sm">calendar_month</span>
+                                                    {durationLabel(duration)}
+                                                </span>
+                                                {forceFinalized ? (
+                                                    <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-200">
+                                                        <span className="material-icons-round text-sm">workspace_premium</span>
+                                                        Temporada cerrada
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-2 rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-sky-200">
+                                                        <span className="material-icons-round text-sm">schedule</span>
+                                                        Temporada activa
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)]">
+                                        {canConfigure && (
+                                            <div className="rounded-2xl border border-gray-700/70 bg-gradient-to-br from-white/[0.04] to-white/[0.02] p-4">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div>
+                                                        <p className="text-[11px] uppercase tracking-[0.22em] font-bold text-gray-300">Periodo oficial</p>
+                                                        <p className="mt-1 text-sm text-muted-dark">Mensual queda como preset principal, pero puedes afinar el rango manualmente.</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                                                    <label className="block">
+                                                        <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Duracion base</span>
+                                                        <select
+                                                            value={duration}
+                                                            onChange={(e) => setDuration(e.target.value as DurationMode)}
+                                                            className="mt-2 w-full bg-background-dark border border-gray-700 rounded-xl px-3 py-3 text-white text-sm"
+                                                        >
+                                                            <option value="30d">Mensual</option>
+                                                            <option value="14d">Quincenal</option>
+                                                            <option value="7d">Semanal</option>
+                                                            <option value="custom">Personalizado</option>
+                                                        </select>
+                                                    </label>
+
+                                                    <label className="block">
+                                                        <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Inicio oficial</span>
+                                                        <input
+                                                            type="date"
+                                                            value={startDate}
+                                                            onChange={(e) => {
+                                                                setDuration('custom');
+                                                                setStartDate(e.target.value);
+                                                            }}
+                                                            className="mt-2 w-full bg-background-dark border border-gray-700 rounded-xl px-3 py-3 text-white text-sm"
+                                                        />
+                                                        <input
+                                                            type="time"
+                                                            value={startTime}
+                                                            onChange={(e) => {
+                                                                setDuration('custom');
+                                                                setStartTime(e.target.value);
+                                                            }}
+                                                            className="mt-2 w-full bg-background-dark border border-gray-700 rounded-xl px-3 py-2 text-white text-sm"
+                                                        />
+                                                    </label>
+
+                                                    <label className="block">
+                                                        <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Cierre oficial</span>
+                                                        <input
+                                                            type="date"
+                                                            value={endDate}
+                                                            onChange={(e) => {
+                                                                setDuration('custom');
+                                                                setEndDate(e.target.value);
+                                                            }}
+                                                            className="mt-2 w-full bg-background-dark border border-gray-700 rounded-xl px-3 py-3 text-white text-sm"
+                                                        />
+                                                        <input
+                                                            type="time"
+                                                            value={endTime}
+                                                            onChange={(e) => {
+                                                                setDuration('custom');
+                                                                setEndTime(e.target.value);
+                                                            }}
+                                                            className="mt-2 w-full bg-background-dark border border-gray-700 rounded-xl px-3 py-2 text-white text-sm"
+                                                        />
+                                                    </label>
+                                                </div>
+
+                                                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                                    <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                                                        <p className="text-[10px] uppercase tracking-widest font-bold text-primary/80">Rango actual</p>
+                                                        <p className="mt-1 text-sm font-semibold text-white">
+                                                            {startDate ? formatDisplayDate(startDate) : '--'} {startTime || '00:00'}
+                                                        </p>
+                                                        <p className="text-sm font-semibold text-white">
+                                                            a {endDate ? formatDisplayDate(endDate) : '--'} {endTime || '23:59'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="rounded-xl border border-gray-700 bg-black/20 p-3">
+                                                        <p className="text-[10px] uppercase tracking-widest font-bold text-gray-300">Uso recomendado</p>
+                                                        <p className="mt-1 text-sm text-muted-dark">
+                                                            Usa <span className="text-white font-semibold">Vista previa</span> para revisar el conteo y luego <span className="text-white font-semibold">Aplicar periodo</span> para volverlo oficial.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="space-y-3">
                                             {canConfigure && (
-                                                <>
-                                                    <button
-                                                        onClick={() => handleSetVisibility(!rankingHidden)}
-                                                        disabled={saving}
-                                                        className="px-3 py-2 rounded-lg text-xs font-bold bg-surface-darker border border-gray-600 text-white disabled:opacity-50"
-                                                    >
-                                                        {rankingHidden ? 'Mostrar global' : 'Ocultar global'}
-                                                    </button>
-                                                    <button
-                                                        onClick={handleFinalize}
-                                                        disabled={saving || forceFinalized}
-                                                        className="px-3 py-2 rounded-lg text-xs font-bold bg-amber-600 text-white disabled:opacity-50"
-                                                    >
-                                                        {forceFinalized ? 'Finalizado' : 'Finalizar'}
-                                                    </button>
-                                                </>
+                                                <div className="rounded-2xl border border-gray-700/70 bg-gradient-to-br from-primary/[0.08] to-transparent p-4">
+                                                    <p className="text-[11px] uppercase tracking-[0.22em] font-bold text-primary/80">Acciones principales</p>
+                                                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                        <button
+                                                            onClick={handlePreview}
+                                                            disabled={loading || !startDate || !endDate}
+                                                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-600 bg-surface-darker px-4 py-3 text-sm font-bold text-white transition hover:border-sky-400/60 hover:text-sky-200 disabled:opacity-50"
+                                                        >
+                                                            <span className="material-icons-round text-base">visibility</span>
+                                                            Vista previa
+                                                        </button>
+                                                        <button
+                                                            onClick={handleSave}
+                                                            disabled={saving || !startDate || !endDate}
+                                                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition hover:bg-primary/90 disabled:opacity-50"
+                                                        >
+                                                            <span className="material-icons-round text-base">save</span>
+                                                            {saving ? 'Aplicando...' : 'Aplicar periodo'}
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             )}
+
+                                            <div className="rounded-2xl border border-gray-700/70 bg-gradient-to-br from-amber-500/[0.08] to-transparent p-4">
+                                                <p className="text-[11px] uppercase tracking-[0.22em] font-bold text-gray-200">
+                                                    {canConfigure ? 'Estado y Visibilidad' : 'Visibilidad de Grupo'}
+                                                </p>
+                                                <div className="mt-3 grid gap-3">
+                                                    {canManageGroupVisibility && (
+                                                        <button
+                                                            onClick={() => handleSetGroupVisibility(groupRankingVisible)}
+                                                            disabled={saving}
+                                                            className="inline-flex items-center justify-between gap-3 rounded-xl border border-gray-600 bg-surface-darker px-4 py-3 text-left text-sm font-semibold text-white transition hover:border-primary/50 disabled:opacity-50"
+                                                        >
+                                                            <span>
+                                                                {groupRankingVisible ? 'Ocultar para este grupo' : 'Mostrar para este grupo'}
+                                                            </span>
+                                                            <span className="material-icons-round text-base">
+                                                                {groupRankingVisible ? 'visibility_off' : 'visibility'}
+                                                            </span>
+                                                        </button>
+                                                    )}
+
+                                                    {canConfigure && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => handleSetVisibility(!rankingHidden)}
+                                                                disabled={saving}
+                                                                className="inline-flex items-center justify-between gap-3 rounded-xl border border-gray-600 bg-surface-darker px-4 py-3 text-left text-sm font-semibold text-white transition hover:border-primary/50 disabled:opacity-50"
+                                                            >
+                                                                <span>{rankingHidden ? 'Mostrar ranking global' : 'Ocultar ranking global'}</span>
+                                                                <span className="material-icons-round text-base">
+                                                                    {rankingHidden ? 'public' : 'public_off'}
+                                                                </span>
+                                                            </button>
+
+                                                            <button
+                                                                onClick={handleFinalize}
+                                                                disabled={saving || forceFinalized}
+                                                                className="inline-flex items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-600/90 px-4 py-3 text-left text-sm font-bold text-white transition hover:bg-amber-500 disabled:opacity-50"
+                                                            >
+                                                                <span>{forceFinalized ? 'Temporada finalizada' : 'Cerrar temporada y fijar resultado'}</span>
+                                                                <span className="material-icons-round text-base">flag</span>
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                <p className="mt-3 text-xs text-muted-dark">
+                                                    {canConfigure
+                                                        ? 'Aplicar periodo solo actualiza el rango oficial. Cerrar temporada deja la clasificacion final registrada.'
+                                                        : 'Este control solo afecta la visibilidad del ranking para el staff de tu grupo.'}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <p className="text-xs text-muted-dark mt-2">
-                                            {canConfigure
-                                                ? 'El admin puede cambiar el periodo oficial y la visibilidad global.'
-                                                : 'Puedes ocultar o mostrar el ranking solo para el staff de tu grupo.'}
-                                        </p>
                                     </div>
                                 </div>
                             )}
