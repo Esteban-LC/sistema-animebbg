@@ -61,11 +61,15 @@ export async function GET(request) {
 
         let start = null;
         let end = null;
+        let filterStart = null;
+        let filterEnd = null;
         let rangeSource = 'none';
 
         if (useRankingRange) {
             const officialRange = await getOfficialRankingRange(db);
             if (officialRange?.start && officialRange?.end) {
+                filterStart = String(officialRange.start);
+                filterEnd = String(officialRange.end);
                 start = String(officialRange.start).slice(0, 10);
                 end = String(officialRange.end).slice(0, 10);
                 rangeSource = 'ranking';
@@ -79,10 +83,14 @@ export async function GET(request) {
             }
             start = queryStart;
             end = queryEnd;
+            filterStart = queryStart;
+            filterEnd = queryEnd;
             rangeSource = 'custom';
         } else if (includeSummary) {
             const officialRange = await getOfficialRankingRange(db);
             if (officialRange?.start && officialRange?.end) {
+                filterStart = String(officialRange.start);
+                filterEnd = String(officialRange.end);
                 start = String(officialRange.start).slice(0, 10);
                 end = String(officialRange.end).slice(0, 10);
                 rangeSource = 'ranking';
@@ -112,9 +120,9 @@ export async function GET(request) {
             query += ' AND COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?';
             params.push(sessionGroupId);
         }
-        if (start && end) {
+        if (filterStart && filterEnd) {
             query += ' AND a.completado_en >= ? AND a.completado_en <= ?';
-            params.push(toDateStart(start), toDateEnd(end));
+            params.push(toDateStart(filterStart), toDateEnd(filterEnd));
         }
 
         query += ' ORDER BY a.completado_en DESC LIMIT 50';
@@ -147,9 +155,9 @@ export async function GET(request) {
             summaryQuery += ' AND COALESCE(a.grupo_id_snapshot, p.grupo_id, u.grupo_id) = ?';
             summaryParams.push(sessionGroupId);
         }
-        if (start && end) {
+        if (filterStart && filterEnd) {
             summaryQuery += ' AND a.completado_en >= ? AND a.completado_en <= ?';
-            summaryParams.push(toDateStart(start), toDateEnd(end));
+            summaryParams.push(toDateStart(filterStart), toDateEnd(filterEnd));
         }
 
         summaryQuery += `
