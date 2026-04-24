@@ -226,6 +226,7 @@ export default function RankingPage() {
     const [modalLoading, setModalLoading] = useState(false);
     const [modalSeason, setModalSeason] = useState<{ start: string; end: string } | null>(null);
     const [modalEntries, setModalEntries] = useState<HistoryEntry[]>([]);
+    const [useSuggestedNextSeason, setUseSuggestedNextSeason] = useState(false);
     const groupRankingVisible = user?.groupSettings?.showRanking !== false;
     const canViewRanking = Boolean(user?.isAdmin || roles.includes('Administrador') || isLeader || groupRankingVisible);
 
@@ -300,12 +301,14 @@ export default function RankingPage() {
                             nextEndDate,
                             String(typed.timeContext?.mexicoNow || '')
                         );
+                        setUseSuggestedNextSeason(true);
                         setStartDate(suggestedRange.startDate);
                         setStartTime(suggestedRange.startTime);
                         setEndDate(suggestedRange.endDate);
                         setEndTime(suggestedRange.endTime);
                         setDuration(suggestedRange.duration);
                     } else {
+                        setUseSuggestedNextSeason(false);
                         setStartDate(nextStartDate);
                         setStartTime(nextStartTime);
                         setEndDate(nextEndDate);
@@ -314,6 +317,7 @@ export default function RankingPage() {
                     }
                 } else {
                     const fallback = getRangeByMode('30d');
+                    setUseSuggestedNextSeason(false);
                     setStartDate(fallback.start);
                     setStartTime('00:00');
                     setEndDate(fallback.end);
@@ -349,10 +353,13 @@ export default function RankingPage() {
 
     useEffect(() => {
         if (!canConfigure || duration === 'custom') return;
+        if (useSuggestedNextSeason) return;
         const range = getRangeByMode(duration);
         setStartDate(range.start);
+        setStartTime('00:00');
         setEndDate(range.end);
-    }, [duration, canConfigure]);
+        setEndTime('23:59');
+    }, [duration, canConfigure, useSuggestedNextSeason]);
 
     const handlePreview = async () => {
         if (!startDate || !endDate) return;
@@ -616,7 +623,10 @@ export default function RankingPage() {
                                                         <span className="text-[10px] uppercase tracking-widest text-muted-dark font-bold">Duracion base</span>
                                                         <select
                                                             value={duration}
-                                                            onChange={(e) => setDuration(e.target.value as DurationMode)}
+                                                            onChange={(e) => {
+                                                                setUseSuggestedNextSeason(false);
+                                                                setDuration(e.target.value as DurationMode);
+                                                            }}
                                                             className="mt-2 w-full bg-background-dark border border-gray-700 rounded-xl px-3 py-3 text-white text-sm"
                                                         >
                                                             <option value="30d">Mensual</option>
@@ -632,6 +642,7 @@ export default function RankingPage() {
                                                             type="date"
                                                             value={startDate}
                                                             onChange={(e) => {
+                                                                setUseSuggestedNextSeason(false);
                                                                 setDuration('custom');
                                                                 setStartDate(e.target.value);
                                                             }}
@@ -641,6 +652,7 @@ export default function RankingPage() {
                                                             type="time"
                                                             value={startTime}
                                                             onChange={(e) => {
+                                                                setUseSuggestedNextSeason(false);
                                                                 setDuration('custom');
                                                                 setStartTime(e.target.value);
                                                             }}
@@ -654,6 +666,7 @@ export default function RankingPage() {
                                                             type="date"
                                                             value={endDate}
                                                             onChange={(e) => {
+                                                                setUseSuggestedNextSeason(false);
                                                                 setDuration('custom');
                                                                 setEndDate(e.target.value);
                                                             }}
@@ -663,6 +676,7 @@ export default function RankingPage() {
                                                             type="time"
                                                             value={endTime}
                                                             onChange={(e) => {
+                                                                setUseSuggestedNextSeason(false);
                                                                 setDuration('custom');
                                                                 setEndTime(e.target.value);
                                                             }}
