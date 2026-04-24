@@ -100,7 +100,39 @@ export default function HistorialPage() {
 
     useEffect(() => {
         fetchHistorial();
-    }, [selectedUser, startDate, endDate, user]);
+    }, [selectedUser, startDate, endDate, useRankingRange, user]);
+
+    useEffect(() => {
+        if (!useRankingRange) return;
+
+        const handleRealtimeUpdate = (event: Event) => {
+            const detail = (event as CustomEvent<{ type?: string }>).detail;
+            const type = String(detail?.type || '').toLowerCase();
+            if (type === 'ranking') {
+                fetchHistorial();
+            }
+        };
+
+        const handleWindowFocus = () => {
+            fetchHistorial();
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                fetchHistorial();
+            }
+        };
+
+        window.addEventListener('realtime:update', handleRealtimeUpdate);
+        window.addEventListener('focus', handleWindowFocus);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener('realtime:update', handleRealtimeUpdate);
+            window.removeEventListener('focus', handleWindowFocus);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [useRankingRange, selectedUser, user]);
 
     const fetchUsuarios = async () => {
         try {
@@ -144,6 +176,10 @@ export default function HistorialPage() {
             if ((useRankingRange || (!startDate && !endDate)) && data?.range?.start && data?.range?.end) {
                 setStartDate(data.range.start);
                 setEndDate(data.range.end);
+                if (draftUseRankingRange) {
+                    setDraftStartDate(data.range.start);
+                    setDraftEndDate(data.range.end);
+                }
             }
         } catch (error) {
             console.error(error);
