@@ -200,6 +200,14 @@ export default function DetalleAsignacion() {
     const [deliveryImagesLoading, setDeliveryImagesLoading] = useState(false);
     const [deliveryImagesError, setDeliveryImagesError] = useState('');
     const [selectedDeliveryImageIndex, setSelectedDeliveryImageIndex] = useState(0);
+    const [deliveryImageZoom, setDeliveryImageZoom] = useState(1);
+    const [isFloatingDeliveryViewer, setIsFloatingDeliveryViewer] = useState(false);
+    const [isMobileDeliveryViewer, setIsMobileDeliveryViewer] = useState(false);
+    const [isFocusDeliveryViewer, setIsFocusDeliveryViewer] = useState(false);
+    const [deliveryFloatPos, setDeliveryFloatPos] = useState({ x: 110, y: 110 });
+    const deliveryFloatRef = useRef<HTMLDivElement>(null);
+    const deliveryDragState = useRef<{ dragging: boolean; startX: number; startY: number; origX: number; origY: number }>({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 });
+    const deliveryTouchStartX = useRef(0);
     const [selectedRawVariant, setSelectedRawVariant] = useState<'CORE' | 'ENG'>('CORE');
     const [isFloatingViewer, setIsFloatingViewer] = useState(false);
     const [isMobileViewer, setIsMobileViewer] = useState(false);
@@ -278,6 +286,11 @@ export default function DetalleAsignacion() {
     const resetZoom = () => setImageZoom(1);
     const goPrevImage = () => setSelectedImageIndex((idx) => Math.max(0, idx - 1));
     const goNextImage = () => setSelectedImageIndex((idx) => Math.min(driveImages.length - 1, idx + 1));
+    const zoomOutDelivery = () => setDeliveryImageZoom((z) => Math.max(0.5, Math.round((z - 0.1) * 10) / 10));
+    const zoomInDelivery = () => setDeliveryImageZoom((z) => Math.min(3, Math.round((z + 0.1) * 10) / 10));
+    const resetDeliveryZoom = () => setDeliveryImageZoom(1);
+    const goPrevDeliveryImage = () => setSelectedDeliveryImageIndex((idx) => Math.max(0, idx - 1));
+    const goNextDeliveryImage = () => setSelectedDeliveryImageIndex((idx) => Math.min(deliveryImages.length - 1, idx + 1));
 
     const onDragStart = useCallback((e: React.MouseEvent) => {
         dragState.current = { dragging: true, startX: e.clientX, startY: e.clientY, origX: floatPos.x, origY: floatPos.y };
@@ -290,12 +303,39 @@ export default function DetalleAsignacion() {
         window.addEventListener('mouseup', onUp);
     }, [floatPos]);
 
+    const onDeliveryDragStart = useCallback((e: React.MouseEvent) => {
+        deliveryDragState.current = { dragging: true, startX: e.clientX, startY: e.clientY, origX: deliveryFloatPos.x, origY: deliveryFloatPos.y };
+        const onMove = (ev: MouseEvent) => {
+            if (!deliveryDragState.current.dragging) return;
+            setDeliveryFloatPos({
+                x: deliveryDragState.current.origX + ev.clientX - deliveryDragState.current.startX,
+                y: deliveryDragState.current.origY + ev.clientY - deliveryDragState.current.startY,
+            });
+        };
+        const onUp = () => {
+            deliveryDragState.current.dragging = false;
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [deliveryFloatPos]);
+
     const onTouchStartSwipe = (e: React.TouchEvent) => { touchStartX.current = e.touches[0].clientX; };
     const onTouchEndSwipe = (e: React.TouchEvent) => {
         const diff = touchStartX.current - e.changedTouches[0].clientX;
         if (Math.abs(diff) > 80) {
             if (diff > 0) goNextImage();
             else goPrevImage();
+        }
+    };
+
+    const onDeliveryTouchStartSwipe = (e: React.TouchEvent) => { deliveryTouchStartX.current = e.touches[0].clientX; };
+    const onDeliveryTouchEndSwipe = (e: React.TouchEvent) => {
+        const diff = deliveryTouchStartX.current - e.changedTouches[0].clientX;
+        if (Math.abs(diff) > 80) {
+            if (diff > 0) goNextDeliveryImage();
+            else goPrevDeliveryImage();
         }
     };
 
@@ -932,42 +972,132 @@ export default function DetalleAsignacion() {
                                 </div>
                             )}
                             {shouldShowDeliveryReview && isTyperOrRedrawer && deliveryDriveLinkType === 'folder' && (
-                                <div className="mb-4 border border-violet-500/20 rounded-xl bg-background-dark overflow-hidden">
-                                    <div className="px-4 py-3 border-b border-violet-500/20 flex items-center justify-between gap-3">
-                                        <div>
-                                            <p className="text-sm font-semibold text-white">Preview de entrega</p>
-                                            <p className="text-[11px] text-muted-dark">
-                                                {deliveryImages.length > 0 ? `${selectedDeliveryImageIndex + 1}/${deliveryImages.length}` : 'Sin imagenes detectadas'}
-                                            </p>
+                                (() => {
+                                    const deliveryViewerToolbar = (
+                                        <div className="flex flex-wrap gap-2 items-center">
+                                            <button type="button" onClick={zoomOutDelivery} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300">Zoom -</button>
+                                            <button type="button" onClick={zoomInDelivery} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300">Zoom +</button>
+                                            <button type="button" onClick={resetDeliveryZoom} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300">Reset</button>
+                                            <button type="button" onClick={goPrevDeliveryImage} disabled={selectedDeliveryImageIndex <= 0} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300 disabled:opacity-40">Anterior</button>
+                                            <button type="button" onClick={goNextDeliveryImage} disabled={selectedDeliveryImageIndex >= deliveryImages.length - 1} className="px-3 py-1.5 text-xs rounded border bg-background-dark border-gray-700 text-gray-300 disabled:opacity-40">Siguiente</button>
+                                            <span className="text-xs text-muted-dark ml-auto">{deliveryImages.length > 0 && `${selectedDeliveryImageIndex + 1}/${deliveryImages.length} · `}Zoom {Math.round(deliveryImageZoom * 100)}%</span>
                                         </div>
-                                    </div>
-                                    {deliveryImagesLoading && (
-                                        <div className="p-4 text-sm text-gray-300">Cargando entrega...</div>
-                                    )}
-                                    {!deliveryImagesLoading && deliveryImagesError && (
-                                        <div className="p-4 text-sm text-red-300">{deliveryImagesError}</div>
-                                    )}
-                                    {!deliveryImagesLoading && !deliveryImagesError && selectedDeliveryImage && (
-                                        <div className="grid grid-cols-[180px_minmax(0,1fr)] h-[520px]">
-                                            <div className="border-r border-violet-500/20 p-2 overflow-y-auto space-y-2">
-                                                {deliveryImages.map((img, idx) => (
-                                                    <button
-                                                        key={img.id}
-                                                        type="button"
-                                                        onClick={() => setSelectedDeliveryImageIndex(idx)}
-                                                        className={`w-full text-left p-2 rounded border ${idx === selectedDeliveryImageIndex ? 'border-violet-500/50 bg-violet-500/10' : 'border-gray-700 bg-surface-dark'}`}
-                                                    >
-                                                        <p className="text-xs text-white truncate">{img.name}</p>
-                                                        <p className="text-[10px] text-muted-dark mt-1">Pag. {idx + 1}</p>
-                                                    </button>
-                                                ))}
+                                    );
+                                    const renderDeliveryViewerBody = (compactList = false) => (
+                                        <>
+                                            {deliveryImagesLoading && (
+                                                <div className="p-4 text-sm text-gray-300">Cargando entrega...</div>
+                                            )}
+                                            {!deliveryImagesLoading && deliveryImagesError && (
+                                                <div className="p-4 text-sm text-red-300">{deliveryImagesError}</div>
+                                            )}
+                                            {!deliveryImagesLoading && !deliveryImagesError && selectedDeliveryImage && (
+                                                <div className={`grid h-full ${compactList ? 'grid-cols-[minmax(0,1fr)]' : 'grid-cols-[180px_minmax(0,1fr)]'}`}>
+                                                    {!compactList && (
+                                                        <div className="border-r border-violet-500/20 p-2 overflow-y-auto space-y-2">
+                                                            {deliveryImages.map((img, idx) => (
+                                                                <div key={img.id} className={`w-full text-left p-2 rounded border ${idx === selectedDeliveryImageIndex ? 'border-violet-500/50 bg-violet-500/10' : 'border-gray-700 bg-surface-dark'}`}>
+                                                                    <p className="text-xs text-white truncate">{img.name}</p>
+                                                                    <div className="flex items-center justify-between mt-1">
+                                                                        <p className="text-[10px] text-muted-dark">Pag. {idx + 1}</p>
+                                                                        <button type="button" onClick={() => setSelectedDeliveryImageIndex(idx)} className="px-2 py-1 text-[10px] rounded border border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20">Ver</button>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    <div className="overflow-auto flex items-start justify-center bg-black/40 p-3">
+                                                        <img
+                                                            src={`/api/drive/image?id=${selectedDeliveryImage.id}`}
+                                                            alt={selectedDeliveryImage.name}
+                                                            className="block w-full h-auto"
+                                                            style={{ transform: `scale(${deliveryImageZoom})`, transformOrigin: 'top center', marginTop: '8px' }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                    return (
+                                        <>
+                                            <div className="mb-3 flex gap-2">
+                                                <button type="button" onClick={() => setIsMobileDeliveryViewer(true)} className="md:hidden inline-flex items-center gap-2 text-xs bg-gray-800 border border-gray-700 text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-700">
+                                                    <span className="material-icons-round text-sm">fullscreen</span>Ver entrega
+                                                </button>
+                                                <button type="button" onClick={() => setIsFloatingDeliveryViewer((v) => !v)} className="hidden md:inline-flex items-center gap-2 text-xs bg-gray-800 border border-gray-700 text-gray-300 px-3 py-2 rounded-lg hover:bg-gray-700">
+                                                    <span className="material-icons-round text-sm">{isFloatingDeliveryViewer ? 'picture_in_picture_alt' : 'open_in_new'}</span>
+                                                    {isFloatingDeliveryViewer ? 'Fijar preview' : 'Preview flotante'}
+                                                </button>
                                             </div>
-                                            <div className="overflow-auto flex items-start justify-center bg-black/40 p-3">
-                                                <img src={`/api/drive/image?id=${selectedDeliveryImage.id}`} alt={selectedDeliveryImage.name} className="block w-full h-auto" />
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
+
+                                            {!isFloatingDeliveryViewer && (
+                                                <div className="mb-4 border border-violet-500/20 rounded-xl bg-background-dark overflow-hidden hidden md:block">
+                                                    <div className="px-4 py-3 border-b border-violet-500/20 flex items-center justify-between gap-3">
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-white">Preview de entrega</p>
+                                                            <p className="text-[11px] text-muted-dark">
+                                                                {deliveryImages.length > 0 ? `${selectedDeliveryImageIndex + 1}/${deliveryImages.length}` : 'Sin imagenes detectadas'}
+                                                            </p>
+                                                        </div>
+                                                        {deliveryViewerToolbar}
+                                                    </div>
+                                                    <div style={{ height: 520 }}>{renderDeliveryViewerBody()}</div>
+                                                </div>
+                                            )}
+
+                                            {isFloatingDeliveryViewer && (
+                                                <div
+                                                    ref={deliveryFloatRef}
+                                                    className="hidden md:flex flex-col fixed z-50 bg-[#0d1119] border border-violet-500/30 rounded-xl shadow-2xl overflow-hidden"
+                                                    style={{ left: deliveryFloatPos.x, top: deliveryFloatPos.y, width: 760, height: 560, resize: 'both' }}
+                                                >
+                                                    <div className="p-2 border-b border-violet-500/20 bg-[#090c12] cursor-move flex gap-2 items-center select-none" onMouseDown={onDeliveryDragStart}>
+                                                        <span className="material-icons-round text-gray-500 text-sm">drag_indicator</span>
+                                                        <span className="text-xs text-gray-400 flex-1">Preview entrega — {selectedDeliveryImage?.name || ''}</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setIsFocusDeliveryViewer((prev) => !prev)}
+                                                            className="px-2 py-1 text-xs rounded border border-gray-700 text-gray-300 hover:text-white hover:border-violet-400"
+                                                        >
+                                                            {isFocusDeliveryViewer ? 'Modo normal' : 'Modo enfoque'}
+                                                        </button>
+                                                        {deliveryViewerToolbar}
+                                                        <button type="button" onClick={() => setIsFloatingDeliveryViewer(false)} className="ml-2 text-gray-400 hover:text-white"><span className="material-icons-round text-sm">close</span></button>
+                                                    </div>
+                                                    <div className="flex-1 overflow-hidden">{renderDeliveryViewerBody(isFocusDeliveryViewer)}</div>
+                                                </div>
+                                            )}
+
+                                            {isMobileDeliveryViewer && (
+                                                <div className="md:hidden fixed inset-0 z-50 bg-black flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                                                    <div className="flex items-center justify-between p-3 border-b border-gray-800">
+                                                        <div className="flex gap-2 items-center">
+                                                            <button type="button" onClick={goPrevDeliveryImage} disabled={selectedDeliveryImageIndex <= 0} className="p-1 text-gray-400 disabled:opacity-30"><span className="material-icons-round">chevron_left</span></button>
+                                                            <span className="text-xs text-gray-400">{selectedDeliveryImageIndex + 1}/{deliveryImages.length}</span>
+                                                            <button type="button" onClick={goNextDeliveryImage} disabled={selectedDeliveryImageIndex >= deliveryImages.length - 1} className="p-1 text-gray-400 disabled:opacity-30"><span className="material-icons-round">chevron_right</span></button>
+                                                        </div>
+                                                        <div className="flex gap-2 items-center">
+                                                            <button type="button" onClick={zoomOutDelivery} className="px-2 py-1 text-xs border border-gray-700 rounded text-gray-300">-</button>
+                                                            <button type="button" onClick={zoomInDelivery} className="px-2 py-1 text-xs border border-gray-700 rounded text-gray-300">+</button>
+                                                            <button type="button" onClick={resetDeliveryZoom} className="px-2 py-1 text-xs border border-gray-700 rounded text-gray-300">Reset</button>
+                                                            <button type="button" onClick={() => setIsMobileDeliveryViewer(false)} className="text-gray-300"><span className="material-icons-round">close</span></button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex-1 overflow-auto flex items-start justify-center p-2" onTouchStart={onDeliveryTouchStartSwipe} onTouchEnd={onDeliveryTouchEndSwipe}>
+                                                        {selectedDeliveryImage && (
+                                                            <img
+                                                                src={`/api/drive/image?id=${selectedDeliveryImage.id}`}
+                                                                alt={selectedDeliveryImage.name}
+                                                                className="block w-full h-auto"
+                                                                style={{ transform: `scale(${deliveryImageZoom})`, transformOrigin: 'top center', marginTop: '8px' }}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                })()
                             )}
                             {shouldShowDeliveryReview && isTraductor && deliveryPreviewUrl && (
                                 <div className="mb-4 border border-violet-500/20 rounded-xl overflow-hidden bg-background-dark">
